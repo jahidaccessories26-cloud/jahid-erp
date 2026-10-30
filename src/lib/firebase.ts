@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import { getAuth } from "firebase/auth"; // Auth যুক্ত করা হলো
 
 const firebaseConfig = {
   apiKey: "AIzaSyA0CwjnCPTJ7ND-3e6PaRbd4hbkIMKptMY",
@@ -13,6 +13,6 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
-const auth = getAuth(app);
+const auth = getAuth(app); // Auth ইনিশিয়ালাইজ
 
 export { db, auth };
