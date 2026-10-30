@@ -20,6 +20,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
+      
+      // লগইন না থাকলে এবং লগইন পেজে না থাকলে সেখানে পাঠিয়ে দেবে
       if (!currentUser && pathname !== "/login") {
         router.push("/login");
       }
@@ -34,6 +36,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
 
   if (loading) return <div className="flex items-center justify-center h-screen font-bold text-brand-navy">Loading...</div>;
 
+  // লগইন পেজে সাইডবার দেখাবে না
   if (pathname === "/login") {
     return <html lang="en"><body className={inter.className}>{children}</body></html>;
   }
@@ -41,6 +44,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body className={`${inter.className} flex bg-brand-light text-gray-800 h-screen overflow-hidden`}>
+        {/* Sidebar */}
         <div className="w-64 bg-brand-navy text-white flex flex-col h-full shadow-lg">
           <div className="p-6 border-b border-brand-silver/30">
             <div className="flex items-center gap-3 mb-2">
@@ -66,6 +70,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             </button>
           </div>
         </div>
+
         <main className="flex-1 p-8 overflow-y-auto h-full">{children}</main>
       </body>
     </html>
