@@ -2,7 +2,7 @@
 import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
-import { LayoutDashboard, Package, LogOut, UserPlus, Box, FolderPlus, Store } from "lucide-react";
+import { LayoutDashboard, Package, LogOut, UserPlus, Box, FolderPlus, Store, Building2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { auth } from "../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -41,14 +41,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <>{children}</>
         ) : (
           <div className="flex h-screen overflow-hidden">
-            {/* Sidebar */}
             <div className="w-64 bg-brand-navy text-white flex flex-col h-full shadow-lg">
               <div className="p-6 border-b border-brand-silver/30">
                 <div className="flex items-center gap-3 mb-2">
                   <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center font-bold text-brand-navy text-xl">J</div>
                   <h1 className="text-lg font-bold tracking-wider leading-tight">Jahid<br/>Accessories</h1>
                 </div>
-                <p className="text-xs text-gray-300 mt-2 leading-relaxed">M-2 Maya Katra, Sadarghat,<br />Dhaka 1100</p>
               </div>
 
               <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
@@ -67,6 +65,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                 <Link href="/warehouse" className="flex items-center gap-3 px-4 py-3 hover:bg-brand-silver/20 rounded-lg transition">
                   <Store size={20} /> <span className="font-medium">Warehouse</span>
                 </Link>
+                <Link href="/shops" className="flex items-center gap-3 px-4 py-3 hover:bg-brand-silver/20 rounded-lg transition">
+                  <Building2 size={20} /> <span className="font-medium">Shops</span>
+                </Link>
                 <Link href="/staff" className="flex items-center gap-3 px-4 py-3 hover:bg-brand-silver/20 rounded-lg transition">
                   <UserPlus size={20} /> <span className="font-medium">Staff</span>
                 </Link>
@@ -80,7 +81,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               </div>
             </div>
 
-            {/* Main Content */}
             <main className="flex-1 p-8 overflow-y-auto h-full">{children}</main>
           </div>
         )}
