@@ -2,7 +2,7 @@ import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
-export const firebaseConfig = { // export করে দিলাম
+export const firebaseConfig = {
   apiKey: "AIzaSyA0CwjnCPTJ7ND-3e6PaRbd4hbkIMKptMY",
   authDomain: "jahidaccessories.firebaseapp.com",
   projectId: "jahidaccessories",
