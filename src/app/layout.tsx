@@ -25,7 +25,7 @@ export default function RootLayout({
                 J
               </div>
               {/* এখানে নাম পরিবর্তন করা হয়েছে */}
-              <h1 className="text-lg font-bold tracking-wider leading-tight">786 Jahid<br/>Accessories</h1>
+              <h1 className="text-lg font-bold tracking-wider leading-tight"> Jahid<br/>Accessories</h1>
             </div>
             <p className="text-xs text-gray-300 mt-2 leading-relaxed">
               M-2 Maya Katra, Sadarghat,<br />Dhaka 1100<br />
