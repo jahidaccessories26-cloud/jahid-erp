@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, getDoc, setDoc, increment } from "firebase/firestore";
 import { Store, ArrowRight, History } from "lucide-react";
 
 export default function WarehousePage() {
@@ -18,24 +18,21 @@ export default function WarehousePage() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    // প্রোডাক্ট লিস্ট
     const qProducts = query(collection(db, "products"), orderBy("createdAt", "desc"));
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
       const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setProducts(data);
     });
 
-    // দোকান লিস্ট
     const qShops = query(collection(db, "shops"), orderBy("createdAt", "desc"));
     const unsubShops = onSnapshot(qShops, (snapshot) => {
       const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setShops(data);
       if (data.length > 0 && !destination) {
-        setDestination(data[0].name); // এখানে এরর ছিল, এখন ঠিক হয়ে গেছে
+        setDestination(data[0].name); 
       }
     });
 
-    // ট্রান্সফার হিস্ট্রি
     const qTransfers = query(collection(db, "transfers"), orderBy("createdAt", "desc"));
     const unsubTransfers = onSnapshot(qTransfers, (snapshot) => {
       const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -89,7 +86,30 @@ export default function WarehousePage() {
       const productRef = doc(db, "products", selectedProduct.id);
       await updateDoc(productRef, { variations: updatedVariations });
 
-      // ২. ট্রান্সফার হিস্ট্রি সেভ করা
+      // ২. দোকানের ইনভেন্টরি বাড়ানো
+      const shopInvId = `${destination}_${selectedProduct.id}_${variation.size}_${variation.color}`;
+      const shopInvRef = doc(db, "shop_inventories", shopInvId);
+      const shopInvSnap = await getDoc(shopInvRef);
+
+      if (shopInvSnap.exists()) {
+        // যদি আগে থেকেই ওই সাইজ/কালার থাকে, স্টক যোগ হবে
+        await updateDoc(shopInvRef, { stock: increment(quantity) });
+      } else {
+        // যদি নতুন হয়, নতুন ডকুমেন্ট তৈরি হবে
+        await setDoc(shopInvRef, {
+          shop: destination,
+          productId: selectedProduct.id,
+          productName: selectedProduct.name,
+          category: selectedProduct.category,
+          size: variation.size,
+          color: variation.color,
+          stock: quantity,
+          costPrice: variation.costPrice,
+          sellingPrice: variation.sellingPrice
+        });
+      }
+
+      // ৩. ট্রান্সফার হিস্ট্রি সেভ করা
       await addDoc(collection(db, "transfers"), {
         productName: selectedProduct.name,
         category: selectedProduct.category,
