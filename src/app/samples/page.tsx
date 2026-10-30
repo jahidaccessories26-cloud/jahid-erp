@@ -13,9 +13,23 @@ export default function SamplesPage() {
     styleNo: "", itemName: "", buyerName: "", quantity: "", description: "", remarks: ""
   });
 
-  // স্ট্যাটাস আপডেট করার স্টেট
+  // স্ট্যাটাস আপডেট করার স্টেট (ডিফল্টভাবে বর্তমান সময় সেট করা হলো)
   const [updatingSample, setUpdatingSample] = useState<any>(null);
-  const [updateData, setUpdateData] = useState({ status: "Sent to Factory", date: "", party: "" });
+  const [updateData, setUpdateData] = useState({ 
+    status: "Sent to Factory", 
+    date: new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16), // Local Time
+    party: "" 
+  });
+
+  // তারিখ ও সময় ফরম্যাট করার ফাংশন
+  const formatDateTime = (dateStr: string) => {
+    if (!dateStr) return "N/A";
+    const d = new Date(dateStr);
+    return d.toLocaleString('en-GB', { 
+      day: '2-digit', month: 'short', year: 'numeric', 
+      hour: '2-digit', minute: '2-digit', hour12: true 
+    });
+  };
 
   useEffect(() => {
     const q = query(collection(db, "samples"), orderBy("createdAt", "desc"));
@@ -38,7 +52,7 @@ export default function SamplesPage() {
         timeline: [
           {
             step: "Received from Buyer",
-            date: new Date().toISOString().split("T")[0],
+            date: new Date().toISOString(), // সম্পূর্ণ তারিখ ও সময় সেভ হবে
             party: formData.buyerName,
           },
         ],
@@ -58,7 +72,7 @@ export default function SamplesPage() {
 
     const newTimelineEvent = {
       step: updateData.status,
-      date: updateData.date || new Date().toISOString().split("T")[0],
+      date: updateData.date ? new Date(updateData.date).toISOString() : new Date().toISOString(),
       party: updateData.party || "N/A",
     };
 
@@ -68,8 +82,13 @@ export default function SamplesPage() {
         currentStatus: updateData.status,
         timeline: [...updatingSample.timeline, newTimelineEvent]
       });
-      setUpdatingSample(null); // ফর্ম বন্ধ করা
-      setUpdateData({ status: "Sent to Factory", date: "", party: "" });
+      setUpdatingSample(null);
+      // ফর্ম রিসেট করা
+      setUpdateData({ 
+        status: "Sent to Factory", 
+        date: new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16), 
+        party: "" 
+      });
     } catch (error) {
       console.error("Error updating: ", error);
       alert("আপডেট করতে সমস্যা হয়েছে!");
@@ -103,7 +122,7 @@ export default function SamplesPage() {
         </form>
       )}
 
-      {/* স্ট্যাটাস আপডেট মডাল/ফর্ম */}
+      {/* স্ট্যাটাস আপডেট মডাল */}
       {updatingSample && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-md">
@@ -120,8 +139,9 @@ export default function SamplesPage() {
                 </select>
               </div>
               <div className="mb-4">
-                <label className="block text-sm font-medium mb-1">Date</label>
-                <input type="date" className="w-full border p-2 rounded-lg" value={updateData.date} onChange={(e) => setUpdateData({...updateData, date: e.target.value})} />
+                <label className="block text-sm font-medium mb-1">Date & Time</label>
+                {/* type="date" থেকে পরিবর্তন করে "datetime-local" করা হলো */}
+                <input type="datetime-local" className="w-full border p-2 rounded-lg" value={updateData.date} onChange={(e) => setUpdateData({...updateData, date: e.target.value})} />
               </div>
               <div className="mb-6">
                 <label className="block text-sm font-medium mb-1">Party (Factory Name / Buyer)</label>
@@ -150,7 +170,15 @@ export default function SamplesPage() {
                 <span className="block bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-semibold mb-2">
                   {sample.currentStatus}
                 </span>
-                <button onClick={() => setUpdatingSample(sample)} className="text-sm text-brand-navy font-medium hover:underline flex items-center gap-1 justify-end">
+                <button onClick={() => {
+                  setUpdatingSample(sample);
+                  // মডাল ওপেন করার সময় বর্তমান লোকাল টাইম সেট করা
+                  setUpdateData({ 
+                    status: "Sent to Factory", 
+                    date: new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16), 
+                    party: "" 
+                  });
+                }} className="text-sm text-brand-navy font-medium hover:underline flex items-center gap-1 justify-end">
                   <CheckCircle size={14} /> Update Status
                 </button>
               </div>
@@ -166,7 +194,8 @@ export default function SamplesPage() {
                   <div className="flex flex-col">
                     <span className="font-semibold text-gray-800">{event.step}</span>
                     <span className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                      <Clock size={14} /> {event.date} • Party: {event.party}
+                      {/* এখানে নতুন ফরম্যাট ফাংশনটি ব্যবহার করা হলো */}
+                      <Clock size={14} /> {formatDateTime(event.date)} • Party: {event.party}
                     </span>
                   </div>
                 </div>
