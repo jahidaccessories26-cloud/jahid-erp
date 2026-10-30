@@ -2,7 +2,7 @@
 import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
-import { LayoutDashboard, Package, LogOut, UserPlus, Box, FolderPlus } from "lucide-react";
+import { LayoutDashboard, Package, LogOut, UserPlus, Box, FolderPlus, Store } from "lucide-react";
 import { useEffect, useState } from "react";
 import { auth } from "../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -51,7 +51,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                 <p className="text-xs text-gray-300 mt-2 leading-relaxed">M-2 Maya Katra, Sadarghat,<br />Dhaka 1100</p>
               </div>
 
-              <nav className="flex-1 p-4 space-y-2">
+              <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
                 <Link href="/" className="flex items-center gap-3 px-4 py-3 hover:bg-brand-silver/20 rounded-lg transition">
                   <LayoutDashboard size={20} /> <span className="font-medium">Dashboard</span>
                 </Link>
@@ -63,6 +63,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                 </Link>
                 <Link href="/products" className="flex items-center gap-3 px-4 py-3 hover:bg-brand-silver/20 rounded-lg transition">
                   <Box size={20} /> <span className="font-medium">Products</span>
+                </Link>
+                <Link href="/warehouse" className="flex items-center gap-3 px-4 py-3 hover:bg-brand-silver/20 rounded-lg transition">
+                  <Store size={20} /> <span className="font-medium">Warehouse</span>
                 </Link>
                 <Link href="/staff" className="flex items-center gap-3 px-4 py-3 hover:bg-brand-silver/20 rounded-lg transition">
                   <UserPlus size={20} /> <span className="font-medium">Staff</span>
