@@ -14,7 +14,7 @@ type Variation = {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]); // ফায়ারবেস থেকে ক্যাটাগরি আসবে
+  const [categories, setCategories] = useState<any[]>([]); // ক্যাটাগরি লিস্ট
   const [showForm, setShowForm] = useState(false);
   
   const [name, setName] = useState("");
@@ -25,17 +25,18 @@ export default function ProductsPage() {
   ]);
 
   useEffect(() => {
-    // প্রোডাক্ট লিস্ট
+    // প্রোডাক্ট লিস্ট রিড করা
     const qProducts = query(collection(db, "products"), orderBy("createdAt", "desc"));
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
       const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setProducts(data);
     });
 
-    // ক্যাটাগরি লিস্ট (ফায়ারবেস থেকে)
+    // ক্যাটাগরি লিস্ট রিড করা
     const qCategories = query(collection(db, "categories"), orderBy("createdAt", "desc"));
     const unsubCategories = onSnapshot(qCategories, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      // এখানে (any) ব্যবহার করে টাইপ এরর ঠিক করা হয়েছে
+      const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setCategories(data);
       if (data.length > 0 && !category) {
         setCategory(data[0].name); // প্রথম ক্যাটাগরি ডিফল্ট সিলেক্ট হবে
@@ -111,7 +112,7 @@ export default function ProductsPage() {
               <label className="block text-sm font-medium mb-1">Category</label>
               <select required className="w-full border p-2 rounded-lg" value={category} onChange={(e) => setCategory(e.target.value)}>
                 <option value="" disabled>Select a Category</option>
-                {/* এখানে ডাইনামিক ক্যাটাগরি লিস্ট লোড হবে */}
+                {/* ডাইনামিক ক্যাটাগরি লিস্ট */}
                 {categories.map((cat) => (
                   <option key={cat.id} value={cat.name}>{cat.name}</option>
                 ))}
