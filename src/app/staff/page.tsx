@@ -17,21 +17,16 @@ export default function StaffPage() {
     setMessage("Loading...");
 
     try {
-      // সেকেন্ডারি অ্যাপ তৈরি করা (যাতে অ্যাডমিন লগআউট না হয়ে যায়)
       const secondaryApp = initializeApp(firebaseConfig, "Secondary");
       const secondaryAuth = getAuth(secondaryApp);
-
-      // নতুন ইউজার তৈরি করা
       const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
 
-      // ফায়ারস্টোরে ইউজারের রোল সেভ করা
       await setDoc(doc(db, "users", email), {
         email: email,
         role: role,
         createdAt: new Date().toISOString()
       });
 
-      // কাজ শেষে সেকেন্ডারি অ্যাপ ডিলিট করা
       await secondaryAuth.signOut();
       await deleteApp(secondaryApp);
 
