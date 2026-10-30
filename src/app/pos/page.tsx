@@ -2,7 +2,9 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, updateDoc, addDoc, increment } from "firebase/firestore";
-import { Store, ShoppingCart, DollarSign } from "lucide-react";
+import { Store, ShoppingCart, DollarSign, Download, Share2 } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function POSPage() {
   const [shops, setShops] = useState<any[]>([]);
@@ -14,7 +16,11 @@ export default function POSPage() {
   const [quantity, setQuantity] = useState<number>(1);
   const [sellPrice, setSellPrice] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  
   const [message, setMessage] = useState("");
+  const [lastReceipt, setLastReceipt] = useState<any>(null); // শেষ বিক্রির ডেটা (ইনভয়েসের জন্য)
 
   // ফায়ারবেস থেকে দোকানের লিস্ট আনা
   useEffect(() => {
@@ -41,18 +47,16 @@ export default function POSPage() {
     return () => unsubInv();
   }, [selectedShop]);
 
-  // প্রোডাক্ট সিলেক্ট করলে দাম সেট হয়ে যাবে
   const handleItemChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const itemId = e.target.value;
     const item = inventory.find(i => i.id === itemId);
     setSelectedItem(item || null);
     if (item) {
-      setSellPrice(item.sellingPrice); // ডিফল্ট বিক্রির দাম
+      setSellPrice(item.sellingPrice);
       setQuantity(1);
     }
   };
 
-  // বিক্রি সম্পন্ন করা
   const handleSale = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage("");
@@ -73,6 +77,10 @@ export default function POSPage() {
       setMessage("Error: বিক্রির দাম ০ এর বেশি হতে হবে।");
       return;
     }
+    if (!customerName || !customerPhone) {
+      setMessage("Error: কাস্টমারের নাম এবং মোবাইল নম্বর দিন।");
+      return;
+    }
 
     try {
       // ১. দোকানের ইনভেন্টরি থেকে স্টক কমানো
@@ -84,8 +92,10 @@ export default function POSPage() {
       const totalCost = quantity * selectedItem.costPrice;
       const profit = totalAmount - totalCost;
 
-      await addDoc(collection(db, "sales"), {
+      const saleData = {
         shop: selectedShop,
+        customerName,
+        customerPhone,
         productName: selectedItem.productName,
         category: selectedItem.category,
         size: selectedItem.size,
@@ -99,12 +109,19 @@ export default function POSPage() {
         paymentMethod: paymentMethod,
         date: new Date().toISOString(),
         createdAt: new Date().toISOString()
-      });
+      };
+
+      const docRef = await addDoc(collection(db, "sales"), saleData);
+      
+      // ৩. ইনভয়েসের জন্য ডেটা সেভ করা
+      setLastReceipt({ id: docRef.id, ...saleData });
 
       setMessage(`Success: ${quantity} পিস বিক্রি হয়েছে! মোট: ৳${totalAmount}`);
       setSelectedItem(null);
       setQuantity(1);
       setSellPrice(0);
+      setCustomerName("");
+      setCustomerPhone("");
       
     } catch (error) {
       console.error(error);
@@ -112,14 +129,88 @@ export default function POSPage() {
     }
   };
 
+  // PDF জেনারেট করার ফাংশন
+  const generatePDF = () => {
+    if (!lastReceipt) return;
+    const doc = new jsPDF();
+
+    // হেডার
+    doc.setFontSize(22);
+    doc.setTextColor(31, 45, 92); // Brand Navy
+    doc.text("Jahid Accessories", 14, 20);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text("M-2 Maya Katra, Sadarghat, Dhaka 1100", 14, 26);
+    doc.text("Phone: +880 1701-665861", 14, 31);
+
+    // কাস্টমার ইনফো
+    doc.setTextColor(0);
+    doc.setFontSize(12);
+    doc.text(`Invoice ID: ${lastReceipt.id.slice(0, 8).toUpperCase()}`, 140, 20);
+    doc.text(`Date: ${new Date(lastReceipt.date).toLocaleDateString()}`, 140, 26);
+    
+    doc.text(`Customer: ${lastReceipt.customerName}`, 14, 45);
+    doc.text(`Mobile: ${lastReceipt.customerPhone}`, 14, 51);
+
+    // টেবিল ডেটা
+    const tableData = [
+      [
+        lastReceipt.productName,
+        lastReceipt.size,
+        lastReceipt.color,
+        lastReceipt.quantity.toString(),
+        `৳${lastReceipt.sellPrice}`,
+        `৳${lastReceipt.totalAmount}`
+      ]
+    ];
+
+    autoTable(doc, {
+      startY: 60,
+      head: [['Product', 'Size', 'Color', 'Qty', 'Price', 'Total']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { fillColor: [31, 45, 92] },
+    });
+
+    // ফুটার (টোটাল)
+    let finalY = (doc as any).lastAutoTable.finalY + 10;
+    doc.text(`Payment Method: ${lastReceipt.paymentMethod}`, 14, finalY);
+    doc.setFontSize(14);
+    doc.text(`Grand Total: ৳${lastReceipt.totalAmount}`, 140, finalY);
+    
+    doc.setFontSize(10);
+    doc.text("Thank you for your business!", 14, finalY + 15);
+
+    // PDF ডাউনলোড
+    doc.save(`Invoice_${lastReceipt.id.slice(0, 8)}.pdf`);
+  };
+
+  // হোয়াটসঅ্যাপে শেয়ার করার ফাংশন
+  const shareWhatsApp = () => {
+    if (!lastReceipt) return;
+    
+    // মোবাইল নম্বর ফরম্যাট করা (বাংলাদেশের জন্য ৮৮ যোগ করা)
+    let phone = lastReceipt.customerPhone.replace(/\D/g, ''); // শুধু নাম্বার রাখা
+    if (phone.startsWith('0')) {
+      phone = '88' + phone;
+    } else if (!phone.startsWith('88')) {
+      phone = '88' + phone;
+    }
+
+    const text = `*Jahid Accessories*\nM-2 Maya Katra, Sadarghat, Dhaka\n\n*Invoice:* ${lastReceipt.id.slice(0, 8).toUpperCase()}\n*Customer:* ${lastReceipt.customerName}\n\n*Product:* ${lastReceipt.productName} (${lastReceipt.size}/${lastReceipt.color})\n*Qty:* ${lastReceipt.quantity} pcs\n*Total:* ৳${lastReceipt.totalAmount}\n*Payment:* ${lastReceipt.paymentMethod}\n\nThank you for your business!`;
+
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank");
+  };
+
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="max-w-5xl mx-auto">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h2 className="text-3xl font-bold text-brand-navy flex items-center gap-2">
           <ShoppingCart size={28} /> POS (Sales)
         </h2>
         
-        {/* দোকান সিলেক্ট */}
         <div className="flex items-center gap-2 bg-white border p-2 rounded-lg shadow-sm">
           <Store size={20} className="text-brand-navy" />
           <select 
@@ -140,20 +231,57 @@ export default function POSPage() {
         </div>
       )}
 
+      {/* ইনভয়েস প্রিভিউ মডাল (যদি লাস্ট রেসিপ্ট থাকে) */}
+      {lastReceipt && (
+        <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-green-600 mb-8 animate-fade-in">
+          <h3 className="text-xl font-bold mb-2 text-green-700">Sale Completed Successfully!</h3>
+          <p className="text-gray-600 mb-4">Invoice for {lastReceipt.customerName} (৳{lastReceipt.totalAmount})</p>
+          
+          <div className="flex gap-3">
+            <button 
+              onClick={generatePDF}
+              className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-navy/90 flex items-center gap-2"
+            >
+              <Download size={18} /> Download PDF
+            </button>
+            <button 
+              onClick={shareWhatsApp}
+              className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 flex items-center gap-2"
+            >
+              <Share2 size={18} /> Share on WhatsApp
+            </button>
+            <button 
+              onClick={() => setLastReceipt(null)}
+              className="text-gray-500 px-4 py-2 hover:bg-gray-100 rounded-lg font-medium"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-brand-navy">
         <h3 className="text-xl font-bold mb-4 text-brand-navy flex items-center gap-2">
           <DollarSign size={22} /> New Sale
         </h3>
         
         <form onSubmit={handleSale} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          
+          {/* কাস্টমারের তথ্য */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Customer Name</label>
+            <input required placeholder="Enter customer name" className="w-full border p-2 rounded-lg" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Customer Mobile</label>
+            <input required type="tel" placeholder="e.g. 017XXXXXXXX" className="w-full border p-2 rounded-lg" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
+          </div>
+
+          <div className="md:col-span-2 border-t pt-4"></div>
+
           <div className="md:col-span-2">
             <label className="block text-sm font-medium mb-1">Select Product from Stock</label>
-            <select 
-              required 
-              className="w-full border p-2 rounded-lg" 
-              onChange={handleItemChange} 
-              value={selectedItem?.id || ""}
-            >
+            <select required className="w-full border p-2 rounded-lg" onChange={handleItemChange} value={selectedItem?.id || ""}>
               <option value="" disabled>-- Select Product --</option>
               {inventory.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -165,40 +293,18 @@ export default function POSPage() {
 
           <div>
             <label className="block text-sm font-medium mb-1">Quantity</label>
-            <input 
-              required 
-              type="number" 
-              min="1" 
-              className="w-full border p-2 rounded-lg" 
-              value={quantity || ""} 
-              onChange={(e) => setQuantity(Number(e.target.value))} 
-              disabled={!selectedItem}
-            />
-            {selectedItem && (
-              <p className="text-xs text-gray-500 mt-1">Available: {selectedItem.stock} pcs</p>
-            )}
+            <input required type="number" min="1" className="w-full border p-2 rounded-lg" value={quantity || ""} onChange={(e) => setQuantity(Number(e.target.value))} disabled={!selectedItem} />
+            {selectedItem && <p className="text-xs text-gray-500 mt-1">Available: {selectedItem.stock} pcs</p>}
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-1">Selling Price (৳)</label>
-            <input 
-              required 
-              type="number" 
-              min="1" 
-              className="w-full border p-2 rounded-lg font-bold text-green-700" 
-              value={sellPrice || ""} 
-              onChange={(e) => setSellPrice(Number(e.target.value))} 
-              disabled={!selectedItem}
-            />
+            <input required type="number" min="1" className="w-full border p-2 rounded-lg font-bold text-green-700" value={sellPrice || ""} onChange={(e) => setSellPrice(Number(e.target.value))} disabled={!selectedItem} />
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-1">Payment Method</label>
-            <select 
-              className="w-full border p-2 rounded-lg" 
-              value={paymentMethod} 
-              onChange={(e) => setPaymentMethod(e.target.value)}
-            >
+            <select className="w-full border p-2 rounded-lg" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
               <option value="Cash">Cash</option>
               <option value="Bkash">Bkash</option>
               <option value="Nagad">Nagad</option>
@@ -220,11 +326,7 @@ export default function POSPage() {
               </div>
             )}
             
-            <button 
-              type="submit" 
-              disabled={!selectedItem}
-              className="bg-green-600 text-white w-full py-3 rounded-lg font-bold text-lg hover:bg-green-700 disabled:bg-gray-400 transition"
-            >
+            <button type="submit" disabled={!selectedItem} className="bg-green-600 text-white w-full py-3 rounded-lg font-bold text-lg hover:bg-green-700 disabled:bg-gray-400 transition">
               Complete Sale
             </button>
           </div>
