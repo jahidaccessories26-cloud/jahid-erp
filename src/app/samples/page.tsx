@@ -7,9 +7,15 @@ import { Clock, Factory, UserCheck, PlusCircle } from "lucide-react";
 export default function SamplesPage() {
   const [samples, setSamples] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({ styleNo: "", buyerName: "", quantity: "" });
+  const [formData, setFormData] = useState({ 
+    styleNo: "", 
+    itemName: "",
+    buyerName: "", 
+    quantity: "",
+    description: "",
+    remarks: ""
+  });
 
-  // ফায়ারবেস থেকে ডেটা রিড করা
   useEffect(() => {
     const q = query(collection(db, "samples"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -19,14 +25,16 @@ export default function SamplesPage() {
     return () => unsubscribe();
   }, []);
 
-  // নতুন স্যাম্পল সেভ করা
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await addDoc(collection(db, "samples"), {
         styleNo: formData.styleNo,
+        itemName: formData.itemName,
         buyerName: formData.buyerName,
         quantity: Number(formData.quantity),
+        description: formData.description,
+        remarks: formData.remarks,
         currentStatus: "Received from Buyer",
         createdAt: new Date().toISOString(),
         timeline: [
@@ -37,7 +45,7 @@ export default function SamplesPage() {
           },
         ],
       });
-      setFormData({ styleNo: "", buyerName: "", quantity: "" });
+      setFormData({ styleNo: "", itemName: "", buyerName: "", quantity: "", description: "", remarks: "" });
       setShowForm(false);
     } catch (error) {
       console.error("Error adding document: ", error);
@@ -57,20 +65,23 @@ export default function SamplesPage() {
         </button>
       </div>
 
-      {/* নতুন স্যাম্পল ফর্ম */}
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow-md border border-gray-200 mb-6">
-          <h3 className="text-lg font-bold mb-4 text-brand-navy">Add New Sample</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <h3 className="text-lg font-bold mb-4 text-brand-navy">Add New Accessories Sample</h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <input required placeholder="Style No (e.g. ST-101)" className="border p-2 rounded-lg" value={formData.styleNo} onChange={(e) => setFormData({...formData, styleNo: e.target.value})} />
+            <input required placeholder="Accessory Name (e.g. Button, Zipper)" className="border p-2 rounded-lg" value={formData.itemName} onChange={(e) => setFormData({...formData, itemName: e.target.value})} />
             <input required placeholder="Buyer Name" className="border p-2 rounded-lg" value={formData.buyerName} onChange={(e) => setFormData({...formData, buyerName: e.target.value})} />
             <input required type="number" placeholder="Quantity" className="border p-2 rounded-lg" value={formData.quantity} onChange={(e) => setFormData({...formData, quantity: e.target.value})} />
+            <input placeholder="Description (e.g. 4-hole, White, 18L)" className="border p-2 rounded-lg md:col-span-2" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} />
+            <input placeholder="Remarks / Special Note (Optional)" className="border p-2 rounded-lg md:col-span-2" value={formData.remarks} onChange={(e) => setFormData({...formData, remarks: e.target.value})} />
           </div>
+          
           <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700">Save Sample</button>
         </form>
       )}
 
-      {/* স্যাম্পল লিস্ট */}
       <div className="space-y-4">
         {samples.length === 0 && <p className="text-gray-500">কোনো স্যাম্পল পাওয়া যায়নি। নতুন স্যাম্পল যোগ করুন।</p>}
         
@@ -78,15 +89,16 @@ export default function SamplesPage() {
           <div key={sample.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
             <div className="flex justify-between items-start mb-6">
               <div>
-                <h3 className="text-xl font-bold text-brand-navy">{sample.styleNo}</h3>
+                <h3 className="text-xl font-bold text-brand-navy">{sample.itemName || "Unknown Item"} ({sample.styleNo})</h3>
                 <p className="text-sm text-gray-500">Buyer: {sample.buyerName} | Qty: {sample.quantity} pcs</p>
+                {sample.description && <p className="text-sm text-gray-700 mt-1"><strong>Details:</strong> {sample.description}</p>}
+                {sample.remarks && <p className="text-sm text-gray-700"><strong>Remarks:</strong> {sample.remarks}</p>}
               </div>
               <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-semibold">
                 {sample.currentStatus}
               </span>
             </div>
 
-            {/* টাইমলাইন */}
             <div className="relative border-l-2 border-gray-200 ml-3 space-y-6">
               {sample.timeline.map((event: any, index: number) => (
                 <div key={index} className="ml-6 relative">
