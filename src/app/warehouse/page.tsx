@@ -7,7 +7,7 @@ import { Store, ArrowRight, History } from "lucide-react";
 export default function WarehousePage() {
   const [products, setProducts] = useState<any[]>([]);
   const [transfers, setTransfers] = useState<any[]>([]);
-  const [shops, setShops] = useState<any[]>([]); // নতুন স্টেট দোকানের জন্য
+  const [shops, setShops] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
 
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -21,24 +21,24 @@ export default function WarehousePage() {
     // প্রোডাক্ট লিস্ট
     const qProducts = query(collection(db, "products"), orderBy("createdAt", "desc"));
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setProducts(data);
     });
 
     // দোকান লিস্ট
     const qShops = query(collection(db, "shops"), orderBy("createdAt", "desc"));
     const unsubShops = onSnapshot(qShops, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setShops(data);
       if (data.length > 0 && !destination) {
-        setDestination(data[0].name); // প্রথম দোকান ডিফল্ট সিলেক্ট
+        setDestination(data[0].name); // এখানে এরর ছিল, এখন ঠিক হয়ে গেছে
       }
     });
 
     // ট্রান্সফার হিস্ট্রি
     const qTransfers = query(collection(db, "transfers"), orderBy("createdAt", "desc"));
     const unsubTransfers = onSnapshot(qTransfers, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setTransfers(data);
     });
 
