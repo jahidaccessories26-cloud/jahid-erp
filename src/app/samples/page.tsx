@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
+import { db } from "../../lib/firebase"; 
 import { collection, addDoc, onSnapshot, query, orderBy } from "firebase/firestore";
 import { Clock, Factory, UserCheck, PlusCircle } from "lucide-react";
 
@@ -9,6 +9,7 @@ export default function SamplesPage() {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({ styleNo: "", buyerName: "", quantity: "" });
 
+  // ফায়ারবেস থেকে ডেটা রিড করা
   useEffect(() => {
     const q = query(collection(db, "samples"), orderBy("createdAt", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -18,6 +19,7 @@ export default function SamplesPage() {
     return () => unsubscribe();
   }, []);
 
+  // নতুন স্যাম্পল সেভ করা
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -39,7 +41,7 @@ export default function SamplesPage() {
       setShowForm(false);
     } catch (error) {
       console.error("Error adding document: ", error);
-      alert("ডেটা সেভ করতে সমস্যা হয়েছে!");
+      alert("ডেটা সেভ করতে সমস্যা হয়েছে!");
     }
   };
 
@@ -55,6 +57,7 @@ export default function SamplesPage() {
         </button>
       </div>
 
+      {/* নতুন স্যাম্পল ফর্ম */}
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow-md border border-gray-200 mb-6">
           <h3 className="text-lg font-bold mb-4 text-brand-navy">Add New Sample</h3>
@@ -67,8 +70,9 @@ export default function SamplesPage() {
         </form>
       )}
 
+      {/* স্যাম্পল লিস্ট */}
       <div className="space-y-4">
-        {samples.length === 0 && <p className="text-gray-500">কোনো স্যাম্পল পাওয়া যায়নি।</p>}
+        {samples.length === 0 && <p className="text-gray-500">কোনো স্যাম্পল পাওয়া যায়নি। নতুন স্যাম্পল যোগ করুন।</p>}
         
         {samples.map((sample) => (
           <div key={sample.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -82,6 +86,7 @@ export default function SamplesPage() {
               </span>
             </div>
 
+            {/* টাইমলাইন */}
             <div className="relative border-l-2 border-gray-200 ml-3 space-y-6">
               {sample.timeline.map((event: any, index: number) => (
                 <div key={index} className="ml-6 relative">
