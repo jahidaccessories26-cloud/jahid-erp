@@ -14,19 +14,16 @@ type Variation = {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]); // ক্যাটাগরি লিস্টের জন্য নতুন স্টেট
+  const [categories, setCategories] = useState<any[]>([]); // ফায়ারবেস থেকে ক্যাটাগরি আসবে
   const [showForm, setShowForm] = useState(false);
   
-  // প্রোডাক্টের মূল তথ্য
   const [name, setName] = useState("");
-  const [category, setCategory] = useState(""); // ডিফল্ট ফাঁকা রাখা হলো
+  const [category, setCategory] = useState(""); 
   
-  // ভ্যারিয়েশন স্টেট (সাইজ ও কালার)
   const [variations, setVariations] = useState<Variation[]>([
     { size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }
   ]);
 
-  // ফায়ারবেস থেকে প্রোডাক্ট এবং ক্যাটাগরি লিস্ট রিড করা
   useEffect(() => {
     // প্রোডাক্ট লিস্ট
     const qProducts = query(collection(db, "products"), orderBy("createdAt", "desc"));
@@ -35,14 +32,13 @@ export default function ProductsPage() {
       setProducts(data);
     });
 
-    // ক্যাটাগরি লিস্ট
+    // ক্যাটাগরি লিস্ট (ফায়ারবেস থেকে)
     const qCategories = query(collection(db, "categories"), orderBy("createdAt", "desc"));
     const unsubCategories = onSnapshot(qCategories, (snapshot) => {
       const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setCategories(data);
-      // যদি ক্যাটাগরি থাকে এবং আগে থেকে কিছু সিলেক্ট করা না থাকে, তবে প্রথম ক্যাটাগরিটি ডিফল্ট সিলেক্ট হবে
       if (data.length > 0 && !category) {
-        setCategory(data[0].name);
+        setCategory(data[0].name); // প্রথম ক্যাটাগরি ডিফল্ট সিলেক্ট হবে
       }
     });
 
@@ -52,25 +48,21 @@ export default function ProductsPage() {
     };
   }, [category]);
 
-  // নতুন ভ্যারিয়েশন লাইন যোগ করা
   const addVariation = () => {
     setVariations([...variations, { size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }]);
   };
 
-  // ভ্যারিয়েশনের ডেটা আপডেট করা
   const updateVariation = (index: number, field: keyof Variation, value: string | number) => {
     const newVariations = [...variations];
     newVariations[index] = { ...newVariations[index], [field]: value };
     setVariations(newVariations);
   };
 
-  // ভ্যারিয়েশন ডিলিট করা
   const removeVariation = (index: number) => {
     const newVariations = variations.filter((_, i) => i !== index);
     setVariations(newVariations);
   };
 
-  // প্রোডাক্ট সেভ করা
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!category) {
@@ -106,7 +98,6 @@ export default function ProductsPage() {
         </button>
       </div>
 
-      {/* প্রোডাক্ট অ্যাড করার ফর্ম */}
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow-md border border-gray-200 mb-8">
           <h3 className="text-xl font-bold mb-4 text-brand-navy">Add New Product</h3>
@@ -120,7 +111,7 @@ export default function ProductsPage() {
               <label className="block text-sm font-medium mb-1">Category</label>
               <select required className="w-full border p-2 rounded-lg" value={category} onChange={(e) => setCategory(e.target.value)}>
                 <option value="" disabled>Select a Category</option>
-                {/* ডাইনামিক ক্যাটাগরি লিস্ট */}
+                {/* এখানে ডাইনামিক ক্যাটাগরি লিস্ট লোড হবে */}
                 {categories.map((cat) => (
                   <option key={cat.id} value={cat.name}>{cat.name}</option>
                 ))}
@@ -170,7 +161,6 @@ export default function ProductsPage() {
         </form>
       )}
 
-      {/* প্রোডাক্ট লিস্ট */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {products.length === 0 && <p className="text-gray-500 col-span-2">কোনো প্রোডাক্ট পাওয়া যায়নি।</p>}
         
