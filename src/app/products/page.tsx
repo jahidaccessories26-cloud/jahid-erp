@@ -68,7 +68,7 @@ export default function ProductsPage() {
       setShowForm(false);
     } catch (error) {
       console.error("Error: ", error);
-      alert("প্রোডাক্ট সেভ করতে সমস্যা হয়েছে!");
+      alert("প্রোডাক্ট সেভ করতে সমস্যা হয়েছে!");
     }
   };
 
