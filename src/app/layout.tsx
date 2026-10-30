@@ -68,6 +68,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
                 <Link href="/shops" className="flex items-center gap-3 px-4 py-3 hover:bg-brand-silver/20 rounded-lg transition">
                   <Building2 size={20} /> <span className="font-medium">Shops</span>
                 </Link>
+                {/* এখানে Shop Inventory লিংক যোগ করা হলো */}
                 <Link href="/shop-inventory" className="flex items-center gap-3 px-4 py-3 hover:bg-brand-silver/20 rounded-lg transition">
                   <ClipboardList size={20} /> <span className="font-medium">Shop Inventory</span>
                 </Link>
