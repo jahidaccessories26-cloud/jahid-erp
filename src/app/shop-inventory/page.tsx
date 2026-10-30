@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, query } from "firebase/firestore";
 import { Store, Package } from "lucide-react";
 
 export default function ShopInventoryPage() {
@@ -11,7 +11,7 @@ export default function ShopInventoryPage() {
 
   // ফায়ারবেস থেকে দোকানের লিস্ট আনা
   useEffect(() => {
-    const qShops = query(collection(db, "shops"), orderBy("createdAt", "desc"));
+    const qShops = query(collection(db, "shops"));
     const unsubShops = onSnapshot(qShops, (snapshot) => {
       const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setShops(data);
@@ -28,10 +28,9 @@ export default function ShopInventoryPage() {
 
     const qInv = query(collection(db, "shop_inventories"));
     const unsubInv = onSnapshot(qInv, (snapshot) => {
-      const data: any[] = snapshot.docs
-        .map((doc) => ({ id: doc.id, ...doc.data() }))
-        .filter((item) => item.shop === selectedShop); // শুধু সিলেক্ট করা দোকানের ডেটা ফিল্টার
-      setInventory(data);
+      const allData: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const filteredData = allData.filter((item) => item.shop === selectedShop);
+      setInventory(filteredData);
     });
     return () => unsubInv();
   }, [selectedShop]);
@@ -41,7 +40,6 @@ export default function ShopInventoryPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h2 className="text-3xl font-bold text-brand-navy">Shop Inventory</h2>
         
-        {/* দোকান সিলেক্ট করার ড্রপডাউন */}
         <div className="flex items-center gap-2 bg-white border p-2 rounded-lg shadow-sm">
           <Store size={20} className="text-brand-navy" />
           <select 
@@ -56,7 +54,6 @@ export default function ShopInventoryPage() {
         </div>
       </div>
 
-      {/* ইনভেন্টরি টেবিল */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-4 border-b bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
           <Package size={20} /> Stock at {selectedShop || "Select a Shop"}
