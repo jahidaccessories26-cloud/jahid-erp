@@ -1,8 +1,8 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth"; // Auth যুক্ত করা হলো
+import { getAuth } from "firebase/auth";
 
-const firebaseConfig = {
+export const firebaseConfig = { // export করে দিলাম
   apiKey: "AIzaSyA0CwjnCPTJ7ND-3e6PaRbd4hbkIMKptMY",
   authDomain: "jahidaccessories.firebaseapp.com",
   projectId: "jahidaccessories",
@@ -13,6 +13,6 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const db = getFirestore(app);
-const auth = getAuth(app); // Auth ইনিশিয়ালাইজ
+const auth = getAuth(app);
 
 export { db, auth };
