@@ -11,7 +11,6 @@ export default function POSPage() {
   const [selectedShop, setSelectedShop] = useState("");
   const [inventory, setInventory] = useState<any[]>([]);
   
-  // ফর্ম স্টেট
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [quantity, setQuantity] = useState<number>(1);
   const [sellPrice, setSellPrice] = useState<number>(0);
@@ -20,9 +19,8 @@ export default function POSPage() {
   const [customerPhone, setCustomerPhone] = useState("");
   
   const [message, setMessage] = useState("");
-  const [lastReceipt, setLastReceipt] = useState<any>(null); // শেষ বিক্রির ডেটা (ইনভয়েসের জন্য)
+  const [lastReceipt, setLastReceipt] = useState<any>(null);
 
-  // ফায়ারবেস থেকে দোকানের লিস্ট আনা
   useEffect(() => {
     const qShops = query(collection(db, "shops"));
     const unsubShops = onSnapshot(qShops, (snapshot) => {
@@ -35,7 +33,6 @@ export default function POSPage() {
     return () => unsubShops();
   }, [selectedShop]);
 
-  // নির্দিষ্ট দোকানের ইনভেন্টরি আনা
   useEffect(() => {
     if (!selectedShop) return;
     const qInv = query(collection(db, "shop_inventories"));
@@ -83,11 +80,9 @@ export default function POSPage() {
     }
 
     try {
-      // ১. দোকানের ইনভেন্টরি থেকে স্টক কমানো
       const itemRef = doc(db, "shop_inventories", selectedItem.id);
       await updateDoc(itemRef, { stock: increment(-quantity) });
 
-      // ২. বিক্রয় রেকর্ড সেভ করা
       const totalAmount = quantity * sellPrice;
       const totalCost = quantity * selectedItem.costPrice;
       const profit = totalAmount - totalCost;
@@ -112,11 +107,9 @@ export default function POSPage() {
       };
 
       const docRef = await addDoc(collection(db, "sales"), saleData);
-      
-      // ৩. ইনভয়েসের জন্য ডেটা সেভ করা
       setLastReceipt({ id: docRef.id, ...saleData });
 
-      setMessage(`Success: ${quantity} পিস বিক্রি হয়েছে! মোট: ৳${totalAmount}`);
+      setMessage(`Success: ${quantity} পিস বিক্রি হয়েছে! মোট: Tk. ${totalAmount}`);
       setSelectedItem(null);
       setQuantity(1);
       setSellPrice(0);
@@ -129,76 +122,102 @@ export default function POSPage() {
     }
   };
 
-  // PDF জেনারেট করার ফাংশন
+  // নতুন ও প্রফেশনাল PDF জেনারেটর
   const generatePDF = () => {
     if (!lastReceipt) return;
     const doc = new jsPDF();
 
-    // হেডার
+    // কোম্পানির হেডার
     doc.setFontSize(22);
-    doc.setTextColor(31, 45, 92); // Brand Navy
-    doc.text("Jahid Accessories", 14, 20);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(31, 45, 92); 
+    doc.text("Jahid Accessories", 14, 25);
     
     doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
     doc.setTextColor(100);
-    doc.text("M-2 Maya Katra, Sadarghat, Dhaka 1100", 14, 26);
-    doc.text("Phone: +880 1701-665861", 14, 31);
+    doc.text("M-2 Maya Katra, Sadarghat, Dhaka 1100", 14, 32);
+    doc.text("Phone: +880 1701-665861", 14, 37);
+
+    // ইনভয়েস টাইটেল (ডান দিকে)
+    doc.setFontSize(16);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(31, 45, 92);
+    doc.text("INVOICE", 196, 25, { align: "right" });
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(0);
+    doc.text(`Invoice ID: ${lastReceipt.id.slice(0, 8).toUpperCase()}`, 196, 32, { align: "right" });
+    doc.text(`Date: ${new Date(lastReceipt.date).toLocaleDateString()}`, 196, 37, { align: "right" });
 
     // কাস্টমার ইনফো
-    doc.setTextColor(0);
     doc.setFontSize(12);
-    doc.text(`Invoice ID: ${lastReceipt.id.slice(0, 8).toUpperCase()}`, 140, 20);
-    doc.text(`Date: ${new Date(lastReceipt.date).toLocaleDateString()}`, 140, 26);
-    
-    doc.text(`Customer: ${lastReceipt.customerName}`, 14, 45);
-    doc.text(`Mobile: ${lastReceipt.customerPhone}`, 14, 51);
+    doc.setFont("helvetica", "bold");
+    doc.text("Bill To:", 14, 50);
 
-    // টেবিল ডেটা
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Name: ${lastReceipt.customerName}`, 14, 56);
+    doc.text(`Mobile: ${lastReceipt.customerPhone}`, 14, 61);
+
+    // টেবিল ডেটা (Tk. ব্যবহার করা হয়েছে)
     const tableData = [
       [
         lastReceipt.productName,
         lastReceipt.size,
         lastReceipt.color,
         lastReceipt.quantity.toString(),
-        `৳${lastReceipt.sellPrice}`,
-        `৳${lastReceipt.totalAmount}`
+        `Tk. ${lastReceipt.sellPrice}`, 
+        `Tk. ${lastReceipt.totalAmount}`
       ]
     ];
 
     autoTable(doc, {
-      startY: 60,
-      head: [['Product', 'Size', 'Color', 'Qty', 'Price', 'Total']],
+      startY: 70,
+      head: [['Product Name', 'Size', 'Color', 'Qty', 'Unit Price', 'Total']],
       body: tableData,
       theme: 'grid',
-      headStyles: { fillColor: [31, 45, 92] },
+      headStyles: { fillColor: [31, 45, 92], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 10, cellPadding: 3 },
+      columnStyles: {
+        3: { halign: 'center' },
+        4: { halign: 'right' },
+        5: { halign: 'right' }
+      }
     });
 
-    // ফুটার (টোটাল)
-    let finalY = (doc as any).lastAutoTable.finalY + 10;
-    doc.text(`Payment Method: ${lastReceipt.paymentMethod}`, 14, finalY);
-    doc.setFontSize(14);
-    doc.text(`Grand Total: ৳${lastReceipt.totalAmount}`, 140, finalY);
+    // টোটাল সেকশন
+    let finalY = (doc as any).lastAutoTable.finalY + 15;
     
     doc.setFontSize(10);
-    doc.text("Thank you for your business!", 14, finalY + 15);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Payment Method: ${lastReceipt.paymentMethod}`, 14, finalY);
+    
+    doc.setFontSize(14);
+    doc.setFont("helvetica", "bold");
+    doc.text(`Grand Total: Tk. ${lastReceipt.totalAmount}`, 196, finalY, { align: "right" });
+    
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "italic");
+    doc.setTextColor(100);
+    doc.text("Thank you for your business!", 14, finalY + 20);
 
     // PDF ডাউনলোড
     doc.save(`Invoice_${lastReceipt.id.slice(0, 8)}.pdf`);
   };
 
-  // হোয়াটসঅ্যাপে শেয়ার করার ফাংশন
   const shareWhatsApp = () => {
     if (!lastReceipt) return;
     
-    // মোবাইল নম্বর ফরম্যাট করা (বাংলাদেশের জন্য ৮৮ যোগ করা)
-    let phone = lastReceipt.customerPhone.replace(/\D/g, ''); // শুধু নাম্বার রাখা
+    let phone = lastReceipt.customerPhone.replace(/\D/g, '');
     if (phone.startsWith('0')) {
       phone = '88' + phone;
     } else if (!phone.startsWith('88')) {
       phone = '88' + phone;
     }
 
-    const text = `*Jahid Accessories*\nM-2 Maya Katra, Sadarghat, Dhaka\n\n*Invoice:* ${lastReceipt.id.slice(0, 8).toUpperCase()}\n*Customer:* ${lastReceipt.customerName}\n\n*Product:* ${lastReceipt.productName} (${lastReceipt.size}/${lastReceipt.color})\n*Qty:* ${lastReceipt.quantity} pcs\n*Total:* ৳${lastReceipt.totalAmount}\n*Payment:* ${lastReceipt.paymentMethod}\n\nThank you for your business!`;
+    const text = `*Jahid Accessories*\nM-2 Maya Katra, Sadarghat, Dhaka\n\n*Invoice:* ${lastReceipt.id.slice(0, 8).toUpperCase()}\n*Customer:* ${lastReceipt.customerName}\n\n*Product:* ${lastReceipt.productName} (${lastReceipt.size}/${lastReceipt.color})\n*Qty:* ${lastReceipt.quantity} pcs\n*Total:* Tk. ${lastReceipt.totalAmount}\n*Payment:* ${lastReceipt.paymentMethod}\n\nThank you for your business!`;
 
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
     window.open(url, "_blank");
@@ -231,29 +250,19 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* ইনভয়েস প্রিভিউ মডাল (যদি লাস্ট রেসিপ্ট থাকে) */}
       {lastReceipt && (
-        <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-green-600 mb-8 animate-fade-in">
+        <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-green-600 mb-8">
           <h3 className="text-xl font-bold mb-2 text-green-700">Sale Completed Successfully!</h3>
-          <p className="text-gray-600 mb-4">Invoice for {lastReceipt.customerName} (৳{lastReceipt.totalAmount})</p>
+          <p className="text-gray-600 mb-4">Invoice for {lastReceipt.customerName} (Tk. {lastReceipt.totalAmount})</p>
           
-          <div className="flex gap-3">
-            <button 
-              onClick={generatePDF}
-              className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-navy/90 flex items-center gap-2"
-            >
+          <div className="flex flex-wrap gap-3">
+            <button onClick={generatePDF} className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-navy/90 flex items-center gap-2">
               <Download size={18} /> Download PDF
             </button>
-            <button 
-              onClick={shareWhatsApp}
-              className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 flex items-center gap-2"
-            >
+            <button onClick={shareWhatsApp} className="bg-green-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-600 flex items-center gap-2">
               <Share2 size={18} /> Share on WhatsApp
             </button>
-            <button 
-              onClick={() => setLastReceipt(null)}
-              className="text-gray-500 px-4 py-2 hover:bg-gray-100 rounded-lg font-medium"
-            >
+            <button onClick={() => setLastReceipt(null)} className="text-gray-500 px-4 py-2 hover:bg-gray-100 rounded-lg font-medium">
               Close
             </button>
           </div>
@@ -267,7 +276,6 @@ export default function POSPage() {
         
         <form onSubmit={handleSale} className="grid grid-cols-1 md:grid-cols-2 gap-4">
           
-          {/* কাস্টমারের তথ্য */}
           <div>
             <label className="block text-sm font-medium mb-1">Customer Name</label>
             <input required placeholder="Enter customer name" className="w-full border p-2 rounded-lg" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
@@ -298,7 +306,7 @@ export default function POSPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Selling Price (৳)</label>
+            <label className="block text-sm font-medium mb-1">Selling Price (Tk.)</label>
             <input required type="number" min="1" className="w-full border p-2 rounded-lg font-bold text-green-700" value={sellPrice || ""} onChange={(e) => setSellPrice(Number(e.target.value))} disabled={!selectedItem} />
           </div>
 
@@ -317,11 +325,11 @@ export default function POSPage() {
               <div className="bg-gray-50 p-4 rounded-lg mb-4 text-sm">
                 <div className="flex justify-between mb-1">
                   <span>Total Amount:</span>
-                  <span className="font-bold">৳{quantity * sellPrice}</span>
+                  <span className="font-bold">Tk. {quantity * sellPrice}</span>
                 </div>
                 <div className="flex justify-between text-green-600">
                   <span>Estimated Profit:</span>
-                  <span className="font-bold">৳{(sellPrice - selectedItem.costPrice) * quantity}</span>
+                  <span className="font-bold">Tk. {(sellPrice - selectedItem.costPrice) * quantity}</span>
                 </div>
               </div>
             )}
