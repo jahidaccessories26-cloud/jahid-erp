@@ -14,26 +14,43 @@ type Variation = {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
+  const [categories, setCategories] = useState<any[]>([]); // ক্যাটাগরি লিস্টের জন্য নতুন স্টেট
   const [showForm, setShowForm] = useState(false);
   
   // প্রোডাক্টের মূল তথ্য
   const [name, setName] = useState("");
-  const [category, setCategory] = useState("Dressing");
+  const [category, setCategory] = useState(""); // ডিফল্ট ফাঁকা রাখা হলো
   
   // ভ্যারিয়েশন স্টেট (সাইজ ও কালার)
   const [variations, setVariations] = useState<Variation[]>([
     { size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }
   ]);
 
-  // ফায়ারবেস থেকে প্রোডাক্ট লিস্ট রিড করা
+  // ফায়ারবেস থেকে প্রোডাক্ট এবং ক্যাটাগরি লিস্ট রিড করা
   useEffect(() => {
-    const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    // প্রোডাক্ট লিস্ট
+    const qProducts = query(collection(db, "products"), orderBy("createdAt", "desc"));
+    const unsubProducts = onSnapshot(qProducts, (snapshot) => {
       const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setProducts(data);
     });
-    return () => unsubscribe();
-  }, []);
+
+    // ক্যাটাগরি লিস্ট
+    const qCategories = query(collection(db, "categories"), orderBy("createdAt", "desc"));
+    const unsubCategories = onSnapshot(qCategories, (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setCategories(data);
+      // যদি ক্যাটাগরি থাকে এবং আগে থেকে কিছু সিলেক্ট করা না থাকে, তবে প্রথম ক্যাটাগরিটি ডিফল্ট সিলেক্ট হবে
+      if (data.length > 0 && !category) {
+        setCategory(data[0].name);
+      }
+    });
+
+    return () => {
+      unsubProducts();
+      unsubCategories();
+    };
+  }, [category]);
 
   // নতুন ভ্যারিয়েশন লাইন যোগ করা
   const addVariation = () => {
@@ -56,6 +73,11 @@ export default function ProductsPage() {
   // প্রোডাক্ট সেভ করা
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!category) {
+      alert("অনুগ্রহ করে একটি ক্যাটাগরি সিলেক্ট করুন!");
+      return;
+    }
+
     try {
       await addDoc(collection(db, "products"), {
         name,
@@ -96,12 +118,12 @@ export default function ProductsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Category</label>
-              <select className="w-full border p-2 rounded-lg" value={category} onChange={(e) => setCategory(e.target.value)}>
-                <option value="Dressing">Dressing</option>
-                <option value="Twill Tape">Twill Tape</option>
-                <option value="Button">Button</option>
-                <option value="Zipper">Zipper</option>
-                <option value="Other">Other</option>
+              <select required className="w-full border p-2 rounded-lg" value={category} onChange={(e) => setCategory(e.target.value)}>
+                <option value="" disabled>Select a Category</option>
+                {/* ডাইনামিক ক্যাটাগরি লিস্ট */}
+                {categories.map((cat) => (
+                  <option key={cat.id} value={cat.name}>{cat.name}</option>
+                ))}
               </select>
             </div>
           </div>
