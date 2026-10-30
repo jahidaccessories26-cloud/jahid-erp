@@ -2,30 +2,40 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc } from "firebase/firestore";
-import { Store, ArrowRight, Box, History } from "lucide-react";
+import { Store, ArrowRight, History } from "lucide-react";
 
 export default function WarehousePage() {
   const [products, setProducts] = useState<any[]>([]);
   const [transfers, setTransfers] = useState<any[]>([]);
+  const [shops, setShops] = useState<any[]>([]); // নতুন স্টেট দোকানের জন্য
   const [showForm, setShowForm] = useState(false);
 
-  // ফর্ম স্টেট
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [selectedVarIndex, setSelectedVarIndex] = useState<number>(-1);
   const [quantity, setQuantity] = useState<number>(0);
-  const [destination, setDestination] = useState("Shop 1");
+  const [destination, setDestination] = useState(""); 
   
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    // প্রোডাক্ট লিস্ট রিড করা
+    // প্রোডাক্ট লিস্ট
     const qProducts = query(collection(db, "products"), orderBy("createdAt", "desc"));
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
       const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setProducts(data);
     });
 
-    // ট্রান্সফার হিস্ট্রি রিড করা
+    // দোকান লিস্ট
+    const qShops = query(collection(db, "shops"), orderBy("createdAt", "desc"));
+    const unsubShops = onSnapshot(qShops, (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setShops(data);
+      if (data.length > 0 && !destination) {
+        setDestination(data[0].name); // প্রথম দোকান ডিফল্ট সিলেক্ট
+      }
+    });
+
+    // ট্রান্সফার হিস্ট্রি
     const qTransfers = query(collection(db, "transfers"), orderBy("createdAt", "desc"));
     const unsubTransfers = onSnapshot(qTransfers, (snapshot) => {
       const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -34,11 +44,11 @@ export default function WarehousePage() {
 
     return () => {
       unsubProducts();
+      unsubShops();
       unsubTransfers();
     };
-  }, []);
+  }, [destination]);
 
-  // প্রোডাক্ট সিলেক্ট করলে ডিফল্ট ভ্যারিয়েশন (প্রথমটি) সিলেক্ট হবে
   const handleProductChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const productId = e.target.value;
     const product = products.find(p => p.id === productId);
@@ -46,7 +56,6 @@ export default function WarehousePage() {
     setSelectedVarIndex(product && product.variations.length > 0 ? 0 : -1);
   };
 
-  // স্টক ট্রান্সফার করার ফাংশন
   const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage("");
@@ -68,11 +77,15 @@ export default function WarehousePage() {
       return;
     }
 
+    if (!destination) {
+      setMessage("Error: দোকান সিলেক্ট করুন।");
+      return;
+    }
+
     try {
-      // ১. ওয়্যারহাউসের স্টক কমানো
+      // ১. ওয়্যারহাউস স্টক কমানো
       const updatedVariations = [...selectedProduct.variations];
       updatedVariations[selectedVarIndex].stock -= quantity;
-
       const productRef = doc(db, "products", selectedProduct.id);
       await updateDoc(productRef, { variations: updatedVariations });
 
@@ -88,10 +101,8 @@ export default function WarehousePage() {
         createdAt: new Date().toISOString()
       });
 
-      setMessage(`Success: ${quantity} পিস ${selectedProduct.name} (${variation.size}/${variation.color}) ${destination}-এ পাঠানো হয়েছে!`);
+      setMessage(`Success: ${quantity} পিস ${selectedProduct.name} ${destination}-এ পাঠানো হয়েছে!`);
       setQuantity(0);
-      
-      // ফর্ম রিসেট (প্রোডাক্ট লিস্ট আপডেট হওয়ার পর)
       setSelectedProduct(null);
       setSelectedVarIndex(-1);
       setShowForm(false);
@@ -120,7 +131,6 @@ export default function WarehousePage() {
         </div>
       )}
 
-      {/* স্টক ট্রান্সফার ফর্ম */}
       {showForm && (
         <form onSubmit={handleTransfer} className="bg-white p-6 rounded-xl shadow-md border-t-4 border-brand-navy mb-8">
           <h3 className="text-xl font-bold mb-4 text-brand-navy flex items-center gap-2">
@@ -140,40 +150,25 @@ export default function WarehousePage() {
 
             <div>
               <label className="block text-sm font-medium mb-1">Select Variation</label>
-              <select 
-                required 
-                className="w-full border p-2 rounded-lg" 
-                value={selectedVarIndex} 
-                onChange={(e) => setSelectedVarIndex(Number(e.target.value))}
-                disabled={!selectedProduct}
-              >
+              <select required className="w-full border p-2 rounded-lg" value={selectedVarIndex} onChange={(e) => setSelectedVarIndex(Number(e.target.value))} disabled={!selectedProduct}>
                 <option value="-1" disabled>-- Select Size & Color --</option>
                 {selectedProduct?.variations.map((v: any, i: number) => (
-                  <option key={i} value={i}>
-                    {v.size} / {v.color} (Stock: {v.stock})
-                  </option>
+                  <option key={i} value={i}>{v.size} / {v.color} (Stock: {v.stock})</option>
                 ))}
               </select>
             </div>
 
             <div>
               <label className="block text-sm font-medium mb-1">Quantity (pcs)</label>
-              <input 
-                required 
-                type="number" 
-                min="1"
-                placeholder="0" 
-                className="w-full border p-2 rounded-lg" 
-                value={quantity || ""} 
-                onChange={(e) => setQuantity(Number(e.target.value))} 
-              />
+              <input required type="number" min="1" placeholder="0" className="w-full border p-2 rounded-lg" value={quantity || ""} onChange={(e) => setQuantity(Number(e.target.value))} />
             </div>
 
             <div>
               <label className="block text-sm font-medium mb-1">Destination</label>
               <select required className="w-full border p-2 rounded-lg" value={destination} onChange={(e) => setDestination(e.target.value)}>
-                <option value="Shop 1">Shop 1 (Sadarghat)</option>
-                <option value="Shop 2">Shop 2 (Main Branch)</option>
+                {shops.map((shop) => (
+                  <option key={shop.id} value={shop.name}>{shop.name}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -184,7 +179,6 @@ export default function WarehousePage() {
         </form>
       )}
 
-      {/* ট্রান্সফার হিস্ট্রি লিস্ট */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-4 border-b bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
           <History size={20} /> Recent Stock Transfers
