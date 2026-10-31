@@ -2,13 +2,13 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy, addDoc, doc, updateDoc, getDoc, increment } from "firebase/firestore";
-import { ShoppingBag, PlusCircle, Store, CheckCircle, X, History } from "lucide-react";
+import { ShoppingBag, PlusCircle, Store, CheckCircle, X, History, FileText } from "lucide-react";
 
 export default function CorporateOrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
-  const [deliveryLogs, setDeliveryLogs] = useState<any[]>([]); // নতুন স্টেট ডেলিভারি হিস্ট্রির জন্য
+  const [deliveryLogs, setDeliveryLogs] = useState<any[]>([]);
   
   // নতুন অর্ডার ফর্ম স্টেট
   const [showForm, setShowForm] = useState(false);
@@ -22,6 +22,7 @@ export default function CorporateOrdersPage() {
   // ডেলিভারি মডাল স্টেট
   const [deliveryOrder, setDeliveryOrder] = useState<any>(null);
   const [deliverQty, setDeliverQty] = useState<number>(0);
+  const [challanNo, setChallanNo] = useState(""); // চালান নং
   
   const [message, setMessage] = useState("");
 
@@ -46,7 +47,6 @@ export default function CorporateOrdersPage() {
       setOrders(data);
     });
 
-    // ডেলিভারি লগ আনা (শুধু Corporate Delivery ফিল্টার করে)
     const qLogs = query(collection(db, "stock_logs"), orderBy("createdAt", "desc"));
     const unsubLogs = onSnapshot(qLogs, (snapshot) => {
       const allLogs: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -102,6 +102,18 @@ export default function CorporateOrdersPage() {
     }
   };
 
+  // ডেলিভারি মডাল ওপেন করার ফাংশন (অটোমেটিক চালান নং তৈরি)
+  const openDeliveryModal = (order: any) => {
+    setDeliveryOrder(order);
+    setDeliverQty(0);
+    
+    // অটোমেটিক চালান নং জেনারেট করা (যেমন: CH-20261101-1234)
+    const now = new Date();
+    const dateString = now.toISOString().slice(0, 10).replace(/-/g, ''); // YYYYMMDD
+    const randomNum = Math.floor(1000 + Math.random() * 9000); // ৪ ডিজিটের র‍্যান্ডম
+    setChallanNo(`CH-${dateString}-${randomNum}`);
+  };
+
   // ডেলিভারি আপডেট করা
   const handleDelivery = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,15 +135,17 @@ export default function CorporateOrdersPage() {
         return;
       }
 
+      // স্টক আপডেট
       await updateDoc(shopInvRef, { stock: increment(-deliverQty) });
 
+      // অর্ডারের হিসাব আপডেট
       const orderRef = doc(db, "corporate_orders", deliveryOrder.id);
       await updateDoc(orderRef, {
         delivered: increment(deliverQty),
         pending: increment(-deliverQty)
       });
 
-      // ডেলিভারি লগে সেভ হবে
+      // স্টক লগে চালান ও সময়সহ সেভ করা
       await addDoc(collection(db, "stock_logs"), {
         shop: deliveryOrder.shop,
         productName: deliveryOrder.productName,
@@ -140,13 +154,15 @@ export default function CorporateOrdersPage() {
         quantity: deliverQty,
         type: "Corporate Delivery", 
         buyerName: deliveryOrder.buyerName,
-        date: new Date().toISOString(),
+        challanNo: challanNo, // অটোমেটিক চালান নং
+        date: new Date().toISOString(), // পূর্ণ তারিখ ও সময় সেভ হবে
         createdAt: new Date().toISOString()
       });
 
-      setMessage(`Success: ${deliverQty} পিস ডেলিভারি আপডেট হয়েছে!`);
+      setMessage(`Success: ${deliverQty} পিস ডেলিভারি আপডেট হয়েছে! (Challan: ${challanNo})`);
       setDeliveryOrder(null);
       setDeliverQty(0);
+      setChallanNo("");
 
     } catch (error) {
       console.error(error);
@@ -261,7 +277,7 @@ export default function CorporateOrdersPage() {
                   <td className="px-4 py-4 text-right">
                     {order.pending > 0 ? (
                       <button 
-                        onClick={() => setDeliveryOrder(order)}
+                        onClick={() => openDeliveryModal(order)}
                         className="bg-brand-navy text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-brand-navy/90 flex items-center gap-1 ml-auto"
                       >
                         <CheckCircle size={14} /> Deliver
@@ -286,7 +302,8 @@ export default function CorporateOrdersPage() {
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-100 text-gray-600">
               <tr>
-                <th className="px-4 py-3 font-semibold">Date</th>
+                <th className="px-4 py-3 font-semibold">Date & Time</th>
+                <th className="px-4 py-3 font-semibold">Challan No</th>
                 <th className="px-4 py-3 font-semibold">Buyer</th>
                 <th className="px-4 py-3 font-semibold">Product</th>
                 <th className="px-4 py-3 font-semibold">Shop</th>
@@ -296,12 +313,18 @@ export default function CorporateOrdersPage() {
             <tbody>
               {deliveryLogs.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">কোনো ডেলিভারি হিস্ট্রি পাওয়া যায়নি।</td>
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">কোনো ডেলিভারি হিস্ট্রি পাওয়া যায়নি।</td>
                 </tr>
               )}
               {deliveryLogs.map((log) => (
                 <tr key={log.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-4 text-gray-500">{new Date(log.date).toLocaleDateString()}</td>
+                  <td className="px-4 py-4 text-gray-500">
+                    {new Date(log.date).toLocaleDateString()} <br/>
+                    <span className="text-xs">{new Date(log.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                  </td>
+                  <td className="px-4 py-4 font-medium text-brand-navy flex items-center gap-1">
+                    <FileText size={14}/> {log.challanNo || "N/A"}
+                  </td>
                   <td className="px-4 py-4 font-bold text-brand-navy">{log.buyerName}</td>
                   <td className="px-4 py-4">{log.productName} ({log.size}/{log.color})</td>
                   <td className="px-4 py-4 text-gray-600">{log.shop}</td>
@@ -322,6 +345,12 @@ export default function CorporateOrdersPage() {
               <button onClick={() => setDeliveryOrder(null)} className="hover:text-gray-300"><X size={24} /></button>
             </div>
             <form onSubmit={handleDelivery} className="p-6">
+              
+              <div className="mb-4 bg-blue-50 border border-blue-200 p-3 rounded-lg text-sm text-blue-800 font-bold flex justify-between items-center">
+                <span>Challan No:</span>
+                <span>{challanNo}</span>
+              </div>
+
               <div className="mb-4 bg-gray-50 p-3 rounded-lg text-sm border">
                 <p><strong>Buyer:</strong> {deliveryOrder.buyerName}</p>
                 <p><strong>Product:</strong> {deliveryOrder.productName} ({deliveryOrder.size}/{deliveryOrder.color})</p>
