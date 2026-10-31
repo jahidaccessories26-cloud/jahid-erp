@@ -2,12 +2,13 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy, addDoc, doc, updateDoc, getDoc, increment } from "firebase/firestore";
-import { ShoppingBag, PlusCircle, Store, CheckCircle, X } from "lucide-react";
+import { ShoppingBag, PlusCircle, Store, CheckCircle, X, History } from "lucide-react";
 
 export default function CorporateOrdersPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [deliveryLogs, setDeliveryLogs] = useState<any[]>([]); // নতুন স্টেট ডেলিভারি হিস্ট্রির জন্য
   
   // নতুন অর্ডার ফর্ম স্টেট
   const [showForm, setShowForm] = useState(false);
@@ -45,7 +46,15 @@ export default function CorporateOrdersPage() {
       setOrders(data);
     });
 
-    return () => { unsubShops(); unsubProducts(); unsubOrders(); };
+    // ডেলিভারি লগ আনা (শুধু Corporate Delivery ফিল্টার করে)
+    const qLogs = query(collection(db, "stock_logs"), orderBy("createdAt", "desc"));
+    const unsubLogs = onSnapshot(qLogs, (snapshot) => {
+      const allLogs: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const filteredLogs = allLogs.filter(log => log.type === "Corporate Delivery");
+      setDeliveryLogs(filteredLogs);
+    });
+
+    return () => { unsubShops(); unsubProducts(); unsubOrders(); unsubLogs(); };
   }, [selectedShop]);
 
   const handleProductChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -105,7 +114,6 @@ export default function CorporateOrdersPage() {
     }
 
     try {
-      // ১. দোকানের স্টক থেকে বিয়োগ করা
       const shopInvId = `${deliveryOrder.shop}_${deliveryOrder.productId}_${deliveryOrder.size}_${deliveryOrder.color}`;
       const shopInvRef = doc(db, "shop_inventories", shopInvId);
       const shopInvSnap = await getDoc(shopInvRef);
@@ -115,24 +123,22 @@ export default function CorporateOrdersPage() {
         return;
       }
 
-      // স্টক আপডেট
       await updateDoc(shopInvRef, { stock: increment(-deliverQty) });
 
-      // ২. অর্ডারের হিসাব আপডেট
       const orderRef = doc(db, "corporate_orders", deliveryOrder.id);
       await updateDoc(orderRef, {
         delivered: increment(deliverQty),
         pending: increment(-deliverQty)
       });
 
-      // ৩. স্টক লগ সেভ করা
+      // ডেলিভারি লগে সেভ হবে
       await addDoc(collection(db, "stock_logs"), {
         shop: deliveryOrder.shop,
         productName: deliveryOrder.productName,
         size: deliveryOrder.size,
         color: deliveryOrder.color,
         quantity: deliverQty,
-        type: "Corporate Delivery", // বাইং হাউজে ডেলিভারি
+        type: "Corporate Delivery", 
         buyerName: deliveryOrder.buyerName,
         date: new Date().toISOString(),
         createdAt: new Date().toISOString()
@@ -218,7 +224,7 @@ export default function CorporateOrdersPage() {
       )}
 
       {/* অর্ডার লিস্ট */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-8">
         <div className="p-4 border-b bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
           <Store size={20} /> All Corporate Orders
         </div>
@@ -264,6 +270,42 @@ export default function CorporateOrdersPage() {
                       <span className="text-green-600 font-bold text-xs bg-green-50 px-2 py-1 rounded">Completed</span>
                     )}
                   </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ডেলিভারি হিস্ট্রি টেবিল */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-4 border-b bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
+          <History size={20} /> Delivery History
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-gray-100 text-gray-600">
+              <tr>
+                <th className="px-4 py-3 font-semibold">Date</th>
+                <th className="px-4 py-3 font-semibold">Buyer</th>
+                <th className="px-4 py-3 font-semibold">Product</th>
+                <th className="px-4 py-3 font-semibold">Shop</th>
+                <th className="px-4 py-3 font-semibold text-center">Delivered Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              {deliveryLogs.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">কোনো ডেলিভারি হিস্ট্রি পাওয়া যায়নি।</td>
+                </tr>
+              )}
+              {deliveryLogs.map((log) => (
+                <tr key={log.id} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-4 py-4 text-gray-500">{new Date(log.date).toLocaleDateString()}</td>
+                  <td className="px-4 py-4 font-bold text-brand-navy">{log.buyerName}</td>
+                  <td className="px-4 py-4">{log.productName} ({log.size}/{log.color})</td>
+                  <td className="px-4 py-4 text-gray-600">{log.shop}</td>
+                  <td className="px-4 py-4 text-center font-bold text-green-600">{log.quantity} pcs</td>
                 </tr>
               ))}
             </tbody>
