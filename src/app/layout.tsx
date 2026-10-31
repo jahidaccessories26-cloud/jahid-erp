@@ -43,12 +43,12 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     router.push("/login");
   };
 
-  // ম্যানেজারদের জন্যও Sample Tracking যোগ করা হলো
+  // ম্যানেজারদের জন্যও Staff মেনু চালু করা হলো
   const navLinks = [
     { name: "Dashboard", href: "/", icon: <LayoutDashboard size={18} />, roles: ["admin", "manager", "merchandiser"] },
-    { name: "Sample Tracking", href: "/samples", icon: <Package size={18} />, roles: ["admin", "manager", "merchandiser"] }, // Manager যোগ করা হলো
-    { name: "Categories", href: "/categories", icon: <FolderPlus size={18} />, roles: ["admin"] },
-    { name: "Products", href: "/products", icon: <Box size={18} />, roles: ["admin"] },
+    { name: "Sample Tracking", href: "/samples", icon: <Package size={18} />, roles: ["admin", "manager", "merchandiser"] },
+    { name: "Categories", href: "/categories", icon: <FolderPlus size={18} />, roles: ["admin", "manager"] }, // ম্যানেজারদের জন্যও চালু
+    { name: "Products", href: "/products", icon: <Box size={18} />, roles: ["admin", "manager"] }, // ম্যানেজারদের জন্যও চালু
     { name: "Warehouse", href: "/warehouse", icon: <Store size={18} />, roles: ["admin"] },
     { name: "Shops", href: "/shops", icon: <Building2 size={18} />, roles: ["admin"] },
     { name: "Shop Inventory", href: "/shop-inventory", icon: <ClipboardList size={18} />, roles: ["admin", "manager"] },
@@ -56,7 +56,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     { name: "Sales History", href: "/sales", icon: <History size={18} />, roles: ["admin", "manager"] },
     { name: "Corporate Orders", href: "/orders", icon: <ShoppingBag size={18} />, roles: ["admin", "manager"] },
     { name: "Stock Logs", href: "/stock-logs", icon: <History size={18} />, roles: ["admin"] },
-    { name: "Staff", href: "/staff", icon: <UserPlus size={18} />, roles: ["admin"] },
+    { name: "Staff", href: "/staff", icon: <UserPlus size={18} />, roles: ["admin", "manager"] }, // ম্যানেজারদের জন্যও চালু
   ];
 
   return (
@@ -73,7 +73,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         ) : (
           <div className="flex h-screen overflow-hidden">
             
-            {/* মোবাইল টপ বার (হেডার) */}
+            {/* মোবাইল টপ বার */}
             <div className="md:hidden fixed top-0 w-full bg-brand-navy text-white flex justify-between items-center px-4 py-3 z-50 shadow-md">
               <div className="flex items-center gap-2 font-bold text-base">
                 <div className="w-7 h-7 bg-white text-brand-navy rounded-full flex items-center justify-center text-sm">J</div>
@@ -84,7 +84,15 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               </button>
             </div>
 
-            {/* সাইডবার (লেখা ছোট করা হয়েছে) */}
+            {/* ওভারলে (মেনু ওপেন থাকলে পেছনে কালো আভা, ক্লিক করলে বন্ধ হবে) */}
+            {isMobileMenuOpen && (
+              <div 
+                className="fixed inset-0 bg-black/50 z-30 md:hidden" 
+                onClick={() => setIsMobileMenuOpen(false)}
+              ></div>
+            )}
+
+            {/* সাইডবার */}
             <div className={`fixed md:static inset-y-0 left-0 z-40 w-60 bg-brand-navy text-white flex flex-col h-full shadow-lg transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"} pt-14 md:pt-0`}>
               <div className="hidden md:block p-5 border-b border-brand-silver/30">
                 <div className="flex items-center gap-2 mb-1">
@@ -115,7 +123,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
 
             {/* মেইন কন্টেন্ট */}
             <main className="flex-1 overflow-y-auto h-full pt-14 md:pt-0">
-              <div className="p-4 md:p-6">
+              <div className="p-4 md:p-6 pb-20"> {/* নিচে প্যাডিং বাড়ানো হলো */}
                 {children}
               </div>
             </main>
