@@ -1,23 +1,29 @@
 "use client";
 import { useState, useEffect } from "react";
-import { db } from "../../lib/firebase"; 
+import { db } from "../../lib/firebase";
 import { collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc } from "firebase/firestore";
-import { Clock, Factory, UserCheck, PlusCircle, CheckCircle } from "lucide-react";
+import { Clock, Factory, UserCheck, PlusCircle, CheckCircle, User } from "lucide-react";
 
 export default function SamplesPage() {
   const [samples, setSamples] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<any[]>([]); // স্টাফ লিস্টের জন্য
   const [showForm, setShowForm] = useState(false);
   
   // নতুন স্যাম্পল ফর্মের স্টেট
   const [formData, setFormData] = useState({ 
-    styleNo: "", itemName: "", buyerName: "", quantity: "", description: "", remarks: ""
+    styleNo: "", 
+    itemName: "",
+    buyerName: "", 
+    quantity: "",
+    description: "",
+    receivedBy: "" // নতুন ফিল্ড
   });
 
-  // স্ট্যাটাস আপডেট করার স্টেট (ডিফল্টভাবে বর্তমান সময় সেট করা হলো)
+  // স্ট্যাটাস আপডেট করার স্টেট
   const [updatingSample, setUpdatingSample] = useState<any>(null);
   const [updateData, setUpdateData] = useState({ 
     status: "Sent to Factory", 
-    date: new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16), // Local Time
+    date: new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16), 
     party: "" 
   });
 
@@ -32,12 +38,19 @@ export default function SamplesPage() {
   };
 
   useEffect(() => {
-    const q = query(collection(db, "samples"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setSamples(data);
+    // স্যাম্পল লিস্ট আনা
+    const qSamples = query(collection(db, "samples"), orderBy("createdAt", "desc"));
+    const unsubSamples = onSnapshot(qSamples, (snapshot) => {
+      setSamples(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     });
-    return () => unsubscribe();
+
+    // স্টাফ লিস্ট আনা (যাতে রিসিভ করার সময় সিলেক্ট করা যায়)
+    const qStaff = query(collection(db, "users"));
+    const unsubStaff = onSnapshot(qStaff, (snapshot) => {
+      setStaffList(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubSamples(); unsubStaff(); };
   }, []);
 
   // নতুন স্যাম্পল সেভ করা
@@ -52,12 +65,13 @@ export default function SamplesPage() {
         timeline: [
           {
             step: "Received from Buyer",
-            date: new Date().toISOString(), // সম্পূর্ণ তারিখ ও সময় সেভ হবে
+            date: new Date().toISOString(), // সম্পূর্ণ তারিখ ও সময়
             party: formData.buyerName,
+            receivedBy: formData.receivedBy // কে রিসিভ করলো
           },
         ],
       });
-      setFormData({ styleNo: "", itemName: "", buyerName: "", quantity: "", description: "", remarks: "" });
+      setFormData({ styleNo: "", itemName: "", buyerName: "", quantity: "", description: "", receivedBy: "" });
       setShowForm(false);
     } catch (error) {
       console.error("Error adding document: ", error);
@@ -83,7 +97,6 @@ export default function SamplesPage() {
         timeline: [...updatingSample.timeline, newTimelineEvent]
       });
       setUpdatingSample(null);
-      // ফর্ম রিসেট করা
       setUpdateData({ 
         status: "Sent to Factory", 
         date: new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16), 
@@ -117,6 +130,22 @@ export default function SamplesPage() {
             <input required placeholder="Buyer Name" className="border p-2 rounded-lg" value={formData.buyerName} onChange={(e) => setFormData({...formData, buyerName: e.target.value})} />
             <input required type="number" placeholder="Quantity" className="border p-2 rounded-lg" value={formData.quantity} onChange={(e) => setFormData({...formData, quantity: e.target.value})} />
             <input placeholder="Description" className="border p-2 rounded-lg md:col-span-2" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} />
+            
+            {/* Received By স্টাফ সিলেক্ট */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium mb-1 text-gray-700">Received By (Staff)</label>
+              <select 
+                required 
+                className="w-full border p-2 rounded-lg" 
+                value={formData.receivedBy} 
+                onChange={(e) => setFormData({...formData, receivedBy: e.target.value})}
+              >
+                <option value="" disabled>-- Select Staff Member --</option>
+                {staffList.map((staff) => (
+                  <option key={staff.id} value={staff.email}>{staff.email}</option>
+                ))}
+              </select>
+            </div>
           </div>
           <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-green-700">Save Sample</button>
         </form>
@@ -140,7 +169,6 @@ export default function SamplesPage() {
               </div>
               <div className="mb-4">
                 <label className="block text-sm font-medium mb-1">Date & Time</label>
-                {/* type="date" থেকে পরিবর্তন করে "datetime-local" করা হলো */}
                 <input type="datetime-local" className="w-full border p-2 rounded-lg" value={updateData.date} onChange={(e) => setUpdateData({...updateData, date: e.target.value})} />
               </div>
               <div className="mb-6">
@@ -158,6 +186,8 @@ export default function SamplesPage() {
 
       {/* স্যাম্পল লিস্ট */}
       <div className="space-y-4">
+        {samples.length === 0 && <p className="text-gray-500">কোনো স্যাম্পল পাওয়া যায়নি।</p>}
+        
         {samples.map((sample) => (
           <div key={sample.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
             <div className="flex justify-between items-start mb-6 border-b pb-4">
@@ -172,7 +202,6 @@ export default function SamplesPage() {
                 </span>
                 <button onClick={() => {
                   setUpdatingSample(sample);
-                  // মডাল ওপেন করার সময় বর্তমান লোকাল টাইম সেট করা
                   setUpdateData({ 
                     status: "Sent to Factory", 
                     date: new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16), 
@@ -194,9 +223,14 @@ export default function SamplesPage() {
                   <div className="flex flex-col">
                     <span className="font-semibold text-gray-800">{event.step}</span>
                     <span className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-                      {/* এখানে নতুন ফরম্যাট ফাংশনটি ব্যবহার করা হলো */}
                       <Clock size={14} /> {formatDateTime(event.date)} • Party: {event.party}
                     </span>
+                    {/* Received By স্টাফের নাম দেখানো */}
+                    {event.receivedBy && (
+                      <span className="text-xs text-brand-navy flex items-center gap-1 mt-0.5">
+                        <User size={12}/> Received By: {event.receivedBy}
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}
