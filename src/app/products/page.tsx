@@ -1,8 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
-import { collection, addDoc, onSnapshot, query, orderBy } from "firebase/firestore";
-import { PlusCircle, Box, Trash2 } from "lucide-react";
+import { collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc } from "firebase/firestore";
+import { PlusCircle, Box, Trash2, Edit, X } from "lucide-react";
 
 type Variation = {
   size: string;
@@ -14,77 +14,81 @@ type Variation = {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]); // ক্যাটাগরি লিস্ট
+  const [categories, setCategories] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   
   const [name, setName] = useState("");
   const [category, setCategory] = useState(""); 
-  
   const [variations, setVariations] = useState<Variation[]>([
     { size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }
   ]);
 
+  // এডিট করার স্টেট
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+
   useEffect(() => {
-    // প্রোডাক্ট লিস্ট রিড করা
     const qProducts = query(collection(db, "products"), orderBy("createdAt", "desc"));
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setProducts(data);
+      setProducts(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     });
 
-    // ক্যাটাগরি লিস্ট রিড করা
-    const qCategories = query(collection(db, "categories"), orderBy("createdAt", "desc"));
+    const qCategories = query(collection(db, "categories"));
     const unsubCategories = onSnapshot(qCategories, (snapshot) => {
-      // এখানে (any) ব্যবহার করে টাইপ এরর ঠিক করা হয়েছে
       const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
       setCategories(data);
-      if (data.length > 0 && !category) {
-        setCategory(data[0].name); // প্রথম ক্যাটাগরি ডিফল্ট সিলেক্ট হবে
+      if (data.length > 0 && !category && !editingProduct) {
+        setCategory(data[0].name);
       }
     });
 
-    return () => {
-      unsubProducts();
-      unsubCategories();
-    };
-  }, [category]);
+    return () => { unsubProducts(); unsubCategories(); };
+  }, [category, editingProduct]);
 
-  const addVariation = () => {
-    setVariations([...variations, { size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }]);
-  };
-
+  const addVariation = () => setVariations([...variations, { size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }]);
+  
   const updateVariation = (index: number, field: keyof Variation, value: string | number) => {
     const newVariations = [...variations];
     newVariations[index] = { ...newVariations[index], [field]: value };
     setVariations(newVariations);
   };
 
-  const removeVariation = (index: number) => {
-    const newVariations = variations.filter((_, i) => i !== index);
-    setVariations(newVariations);
-  };
+  const removeVariation = (index: number) => setVariations(variations.filter((_, i) => i !== index));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!category) {
-      alert("অনুগ্রহ করে একটি ক্যাটাগরি সিলেক্ট করুন!");
-      return;
-    }
+    if (!category) { alert("ক্যাটাগরি সিলেক্ট করুন!"); return; }
 
     try {
-      await addDoc(collection(db, "products"), {
-        name,
-        category,
-        variations,
-        createdAt: new Date().toISOString(),
-      });
+      if (editingProduct) {
+        // এডিট করা হচ্ছে
+        await updateDoc(doc(db, "products", editingProduct.id), {
+          name, category, variations
+        });
+        alert("Success: প্রোডাক্ট আপডেট হয়েছে!");
+      } else {
+        // নতুন প্রোডাক্ট
+        await addDoc(collection(db, "products"), {
+          name, category, variations, createdAt: new Date().toISOString(),
+        });
+        alert("Success: নতুন প্রোডাক্ট সেভ হয়েছে!");
+      }
+      
       setName("");
       setVariations([{ size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }]);
       setShowForm(false);
+      setEditingProduct(null);
     } catch (error) {
       console.error("Error: ", error);
       alert("প্রোডাক্ট সেভ করতে সমস্যা হয়েছে!");
     }
+  };
+
+  const handleEdit = (product: any) => {
+    setEditingProduct(product);
+    setName(product.name);
+    setCategory(product.category);
+    setVariations(product.variations);
+    setShowForm(true);
   };
 
   return (
@@ -92,7 +96,7 @@ export default function ProductsPage() {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-3xl font-bold text-brand-navy">Product Catalog</h2>
         <button 
-          onClick={() => setShowForm(!showForm)}
+          onClick={() => { setShowForm(!showForm); setEditingProduct(null); setName(""); setVariations([{ size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }]); }}
           className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-navy/90 transition flex items-center gap-2"
         >
           <PlusCircle size={18} /> {showForm ? "Close Form" : "Add New Product"}
@@ -101,7 +105,10 @@ export default function ProductsPage() {
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow-md border border-gray-200 mb-8">
-          <h3 className="text-xl font-bold mb-4 text-brand-navy">Add New Product</h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-bold text-brand-navy">{editingProduct ? "Edit Product" : "Add New Product"}</h3>
+            <button type="button" onClick={() => { setShowForm(false); setEditingProduct(null); }} className="text-gray-400 hover:text-red-500"><X size={24}/></button>
+          </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div>
@@ -112,43 +119,23 @@ export default function ProductsPage() {
               <label className="block text-sm font-medium mb-1">Category</label>
               <select required className="w-full border p-2 rounded-lg" value={category} onChange={(e) => setCategory(e.target.value)}>
                 <option value="" disabled>Select a Category</option>
-                {/* ডাইনামিক ক্যাটাগরি লিস্ট */}
-                {categories.map((cat) => (
-                  <option key={cat.id} value={cat.name}>{cat.name}</option>
-                ))}
+                {categories.map((cat) => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
               </select>
             </div>
           </div>
 
           <div className="mb-4">
-            <h4 className="font-semibold text-gray-700 mb-2 border-b pb-2">Variations (Size, Color & Stock)</h4>
+            <h4 className="font-semibold text-gray-700 mb-2 border-b pb-2">Variations (Size, Color, Stock, Price)</h4>
             
             {variations.map((v, index) => (
               <div key={index} className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-3 items-end bg-gray-50 p-3 rounded-lg border">
-                <div>
-                  <label className="text-xs font-medium text-gray-500">Size</label>
-                  <input required placeholder="10 cm" className="w-full border p-1.5 rounded text-sm" value={v.size} onChange={(e) => updateVariation(index, "size", e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500">Color</label>
-                  <input required placeholder="Red" className="w-full border p-1.5 rounded text-sm" value={v.color} onChange={(e) => updateVariation(index, "color", e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500">Stock</label>
-                  <input required type="number" placeholder="100" className="w-full border p-1.5 rounded text-sm" value={v.stock || ""} onChange={(e) => updateVariation(index, "stock", Number(e.target.value))} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500">Cost Price</label>
-                  <input required type="number" placeholder="50" className="w-full border p-1.5 rounded text-sm" value={v.costPrice || ""} onChange={(e) => updateVariation(index, "costPrice", Number(e.target.value))} />
-                </div>
-                <div>
-                  <label className="text-xs font-medium text-gray-500">Sell Price</label>
-                  <input required type="number" placeholder="60" className="w-full border p-1.5 rounded text-sm" value={v.sellingPrice || ""} onChange={(e) => updateVariation(index, "sellingPrice", Number(e.target.value))} />
-                </div>
+                <div><label className="text-xs font-medium text-gray-500">Size</label><input required placeholder="10 cm" className="w-full border p-1.5 rounded text-sm" value={v.size} onChange={(e) => updateVariation(index, "size", e.target.value)} /></div>
+                <div><label className="text-xs font-medium text-gray-500">Color</label><input required placeholder="Red" className="w-full border p-1.5 rounded text-sm" value={v.color} onChange={(e) => updateVariation(index, "color", e.target.value)} /></div>
+                <div><label className="text-xs font-medium text-gray-500">Stock</label><input required type="number" placeholder="100" className="w-full border p-1.5 rounded text-sm" value={v.stock || ""} onChange={(e) => updateVariation(index, "stock", Number(e.target.value))} /></div>
+                <div><label className="text-xs font-medium text-gray-500">Cost Price</label><input required type="number" placeholder="50" className="w-full border p-1.5 rounded text-sm" value={v.costPrice || ""} onChange={(e) => updateVariation(index, "costPrice", Number(e.target.value))} /></div>
+                <div><label className="text-xs font-medium text-gray-500">Sell Price</label><input required type="number" placeholder="60" className="w-full border p-1.5 rounded text-sm" value={v.sellingPrice || ""} onChange={(e) => updateVariation(index, "sellingPrice", Number(e.target.value))} /></div>
                 <div className="flex justify-end">
-                  <button type="button" onClick={() => removeVariation(index)} className="text-red-500 hover:bg-red-50 p-1.5 rounded" title="Remove this row">
-                    <Trash2 size={18} />
-                  </button>
+                  <button type="button" onClick={() => removeVariation(index)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={18} /></button>
                 </div>
               </div>
             ))}
@@ -158,19 +145,30 @@ export default function ProductsPage() {
             </button>
           </div>
 
-          <button type="submit" className="bg-green-600 text-white px-8 py-2 rounded-lg font-medium hover:bg-green-700 mt-4 w-full md:w-auto">Save Product</button>
+          <button type="submit" className="bg-green-600 text-white px-8 py-2 rounded-lg font-medium hover:bg-green-700 mt-4 w-full md:w-auto">
+            {editingProduct ? "Update Product" : "Save Product"}
+          </button>
         </form>
       )}
 
+      {/* প্রোডাক্ট লিস্ট */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {products.length === 0 && <p className="text-gray-500 col-span-2">কোনো প্রোডাক্ট পাওয়া যায়নি।</p>}
         
         {products.map((product) => (
-          <div key={product.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-            <div className="flex items-center gap-3 mb-3 border-b pb-3">
-              <div className="bg-brand-navy/10 p-2 rounded-lg">
-                <Box className="text-brand-navy" size={24} />
-              </div>
+          <div key={product.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col relative group">
+            
+            {/* এডিট বাটন (উপরে ডানদিকে) */}
+            <button 
+              onClick={() => handleEdit(product)} 
+              className="absolute top-4 right-4 bg-gray-100 text-gray-500 p-2 rounded-lg hover:bg-brand-navy hover:text-white transition"
+              title="Edit Product"
+            >
+              <Edit size={16} />
+            </button>
+
+            <div className="flex items-center gap-3 mb-3 border-b pb-3 pr-10">
+              <div className="bg-brand-navy/10 p-2 rounded-lg"><Box className="text-brand-navy" size={24} /></div>
               <div>
                 <h3 className="text-lg font-bold text-brand-navy">{product.name}</h3>
                 <span className="text-xs font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded">{product.category}</span>
@@ -181,11 +179,8 @@ export default function ProductsPage() {
               <table className="w-full text-sm text-left">
                 <thead className="text-xs text-gray-500 uppercase bg-gray-50">
                   <tr>
-                    <th className="px-2 py-2">Size</th>
-                    <th className="px-2 py-2">Color</th>
-                    <th className="px-2 py-2 text-right">Stock</th>
-                    <th className="px-2 py-2 text-right">Cost</th>
-                    <th className="px-2 py-2 text-right">Sell</th>
+                    <th className="px-2 py-2">Size</th><th className="px-2 py-2">Color</th>
+                    <th className="px-2 py-2 text-right">Stock</th><th className="px-2 py-2 text-right">Cost</th><th className="px-2 py-2 text-right">Sell</th>
                   </tr>
                 </thead>
                 <tbody>
