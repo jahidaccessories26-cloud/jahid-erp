@@ -1,78 +1,169 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { db, firebaseConfig } from "../../lib/firebase";
 import { initializeApp, deleteApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
-import { UserPlus } from "lucide-react";
+import { collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc } from "firebase/firestore";
+import { UserPlus, Edit, Trash2 } from "lucide-react";
 
 export default function StaffPage() {
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [shops, setShops] = useState<any[]>([]); // দোকানের লিস্ট
+  
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("manager");
+  const [assignedShop, setAssignedShop] = useState(""); // অ্যাসাইন করা দোকান
+  
   const [message, setMessage] = useState("");
+  const [editingStaff, setEditingStaff] = useState<any>(null);
+  const [editRole, setEditRole] = useState("");
+  const [editShop, setEditShop] = useState(""); // এডিটের জন্য দোকান
 
+  useEffect(() => {
+    const unsubUsers = onSnapshot(collection(db, "users"), (snapshot) => {
+      setStaffList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    const unsubShops = onSnapshot(collection(db, "shops"), (snapshot) => {
+      const data: any[] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setShops(data);
+      if (data.length > 0 && !assignedShop) setAssignedShop(data[0].name);
+    });
+    return () => { unsubUsers(); unsubShops(); };
+  }, [assignedShop]);
+
+  // নতুন স্টাফ তৈরি
   const handleAddStaff = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage("Loading...");
-
     try {
       const secondaryApp = initializeApp(firebaseConfig, "Secondary");
       const secondaryAuth = getAuth(secondaryApp);
-      const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-
+      await createUserWithEmailAndPassword(secondaryAuth, email, password);
+      
+      // রোল এবং দোকান সেভ করা
       await setDoc(doc(db, "users", email), {
-        email: email,
-        role: role,
+        email: email, 
+        role: role, 
+        assignedShop: role === "manager" ? assignedShop : "All", // ম্যানেজার হলে দোকান, অ্যাডমিন হলে All
         createdAt: new Date().toISOString()
       });
 
       await secondaryAuth.signOut();
       await deleteApp(secondaryApp);
+      
+      setMessage(`Success: ${email} added successfully.`);
+      setEmail(""); setPassword("");
+    } catch (error: any) { setMessage(`Error: ${error.message}`); }
+  };
 
-      setMessage(`Success! ${email} added as ${role}.`);
-      setEmail("");
-      setPassword("");
-    } catch (error: any) {
-      setMessage(`Error: ${error.message}`);
+  // এডিট (রোল ও দোকান)
+  const handleUpdateRole = async () => {
+    if (!editingStaff) return;
+    try {
+      await updateDoc(doc(db, "users", editingStaff.email), { 
+        role: editRole,
+        assignedShop: editRole === "manager" ? editShop : "All"
+      });
+      setEditingStaff(null);
+    } catch (error) { alert("আপডেট করতে সমস্যা হয়েছে!"); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm("আপনি কি নিশ্চিত এই স্টাফকে ডিলিট করতে চান?")) {
+      await deleteDoc(doc(db, "users", id));
     }
   };
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-4xl mx-auto">
       <h2 className="text-3xl font-bold text-brand-navy mb-6">Staff Management</h2>
       
-      <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-brand-navy mb-6">
-        <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-          <UserPlus size={20} /> Add New Employee
-        </h3>
-        
+      <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-brand-navy mb-8">
+        <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><UserPlus size={20} /> Add New Employee</h3>
         {message && <p className={`mb-4 font-medium ${message.includes("Error") ? "text-red-500" : "text-green-600"}`}>{message}</p>}
 
-        <form onSubmit={handleAddStaff} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Employee Email</label>
-            <input type="email" required placeholder="manager@jahid.com" className="w-full border p-2 rounded-lg" value={email} onChange={(e) => setEmail(e.target.value)} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Password</label>
-            <input type="password" required placeholder="Give a strong password" className="w-full border p-2 rounded-lg" value={password} onChange={(e) => setPassword(e.target.value)} />
-          </div>
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium mb-1">Role</label>
-            <select className="w-full border p-2 rounded-lg" value={role} onChange={(e) => setRole(e.target.value)}>
-              <option value="manager">Manager (Shop/Warehouse)</option>
-              <option value="merchandiser">Merchandiser (Sample Tracking)</option>
-              <option value="admin">Admin</option>
-            </select>
-          </div>
-          <div className="md:col-span-2 mt-2">
-            <button type="submit" className="bg-brand-navy text-white px-6 py-2 rounded-lg font-medium hover:bg-brand-navy/90">
-              Create Account
-            </button>
-          </div>
+        <form onSubmit={handleAddStaff} className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <input required type="email" placeholder="Email" className="border p-2 rounded-lg" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input required type="password" placeholder="Password" className="border p-2 rounded-lg" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <select className="border p-2 rounded-lg" value={role} onChange={(e) => setRole(e.target.value)}>
+            <option value="manager">Manager</option>
+            <option value="merchandiser">Merchandiser</option>
+            <option value="admin">Admin</option>
+          </select>
+          
+          {/* দোকান সিলেক্ট (ম্যানেজার হলে দেখাবে) */}
+          <select 
+            className={`border p-2 rounded-lg ${role !== 'manager' && 'opacity-50'}`} 
+            value={assignedShop} 
+            onChange={(e) => setAssignedShop(e.target.value)}
+            disabled={role !== 'manager'}
+          >
+            {shops.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+          </select>
+
+          <button type="submit" className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-navy/90">Create</button>
         </form>
       </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-gray-50 border-b">
+            <tr>
+              <th className="px-6 py-4 font-semibold text-gray-600">Email</th>
+              <th className="px-6 py-4 font-semibold text-gray-600">Role</th>
+              <th className="px-6 py-4 font-semibold text-gray-600">Assigned Shop</th>
+              <th className="px-6 py-4 font-semibold text-gray-600 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {staffList.map((staff) => (
+              <tr key={staff.id} className="border-b last:border-0 hover:bg-gray-50">
+                <td className="px-6 py-4 font-medium">{staff.email}</td>
+                <td className="px-6 py-4">
+                  <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold uppercase">{staff.role}</span>
+                </td>
+                <td className="px-6 py-4">
+                  {staff.role === "manager" ? (
+                    <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-bold">{staff.assignedShop || "Not Assigned"}</span>
+                  ) : (
+                    <span className="text-gray-400 text-xs">N/A</span>
+                  )}
+                </td>
+                <td className="px-6 py-4 text-right flex justify-end gap-2">
+                  <button onClick={() => { setEditingStaff(staff); setEditRole(staff.role); setEditShop(staff.assignedShop || ""); }} className="text-brand-navy bg-gray-100 p-2 rounded-lg"><Edit size={16}/></button>
+                  <button onClick={() => handleDelete(staff.id)} className="text-red-500 bg-red-50 p-2 rounded-lg"><Trash2 size={16}/></button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Edit Role Modal */}
+      {editingStaff && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-xl w-96">
+            <h3 className="font-bold mb-4">Edit Profile for {editingStaff.email}</h3>
+            <select className="w-full border p-2 rounded-lg mb-3" value={editRole} onChange={(e) => setEditRole(e.target.value)}>
+              <option value="manager">Manager</option>
+              <option value="merchandiser">Merchandiser</option>
+              <option value="admin">Admin</option>
+            </select>
+            
+            {editRole === 'manager' && (
+              <select className="w-full border p-2 rounded-lg mb-4" value={editShop} onChange={(e) => setEditShop(e.target.value)}>
+                {shops.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditingStaff(null)} className="px-4 py-2 border rounded-lg">Cancel</button>
+              <button onClick={handleUpdateRole} className="px-4 py-2 bg-brand-navy text-white rounded-lg">Update</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
