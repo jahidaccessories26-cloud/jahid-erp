@@ -2,21 +2,25 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc } from "firebase/firestore";
-import { Clock, Factory, UserCheck, PlusCircle, CheckCircle, User } from "lucide-react";
+import { Clock, Factory, UserCheck, PlusCircle, CheckCircle, User, Building2, Filter } from "lucide-react";
 
 export default function SamplesPage() {
   const [samples, setSamples] = useState<any[]>([]);
-  const [staffList, setStaffList] = useState<any[]>([]); // স্টাফ লিস্টের জন্য
+  const [garments, setGarments] = useState<any[]>([]); // গার্মেন্টস লিস্ট
+  const [staffList, setStaffList] = useState<any[]>([]);
+  
   const [showForm, setShowForm] = useState(false);
+  const [filterGarment, setFilterGarment] = useState("All"); // ফিল্টার স্টেট
   
   // নতুন স্যাম্পল ফর্মের স্টেট
   const [formData, setFormData] = useState({ 
     styleNo: "", 
     itemName: "",
     buyerName: "", 
+    garmentName: "", // নতুন ফিল্ড
     quantity: "",
     description: "",
-    receivedBy: "" // নতুন ফিল্ড
+    receivedBy: "" 
   });
 
   // স্ট্যাটাস আপডেট করার স্টেট
@@ -27,7 +31,7 @@ export default function SamplesPage() {
     party: "" 
   });
 
-  // তারিখ ও সময় ফরম্যাট করার ফাংশন
+  // তারিখ ও সময় ফরম্যাট
   const formatDateTime = (dateStr: string) => {
     if (!dateStr) return "N/A";
     const d = new Date(dateStr);
@@ -38,24 +42,34 @@ export default function SamplesPage() {
   };
 
   useEffect(() => {
-    // স্যাম্পল লিস্ট আনা
+    // স্যাম্পল লিস্ট
     const qSamples = query(collection(db, "samples"), orderBy("createdAt", "desc"));
     const unsubSamples = onSnapshot(qSamples, (snapshot) => {
       setSamples(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     });
 
-    // স্টাফ লিস্ট আনা (যাতে রিসিভ করার সময় সিলেক্ট করা যায়)
+    // স্টাফ লিস্ট
     const qStaff = query(collection(db, "users"));
     const unsubStaff = onSnapshot(qStaff, (snapshot) => {
       setStaffList(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     });
 
-    return () => { unsubSamples(); unsubStaff(); };
+    // গার্মেন্টস লিস্ট (যেহেতু Corporate Orders এ garments কালেকশন আছে)
+    const qGarments = query(collection(db, "garments"));
+    const unsubGarments = onSnapshot(qGarments, (snapshot) => {
+      setGarments(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubSamples(); unsubStaff(); unsubGarments(); };
   }, []);
 
-  // নতুন স্যাম্পল সেভ করা
+  // নতুন স্যাম্পল সেভ
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.garmentName) {
+      alert("অনুগ্রহ করে গার্মেন্টস সিলেক্ট করুন!"); return;
+    }
+
     try {
       await addDoc(collection(db, "samples"), {
         ...formData,
@@ -65,13 +79,13 @@ export default function SamplesPage() {
         timeline: [
           {
             step: "Received from Buyer",
-            date: new Date().toISOString(), // সম্পূর্ণ তারিখ ও সময়
+            date: new Date().toISOString(),
             party: formData.buyerName,
-            receivedBy: formData.receivedBy // কে রিসিভ করলো
+            receivedBy: formData.receivedBy
           },
         ],
       });
-      setFormData({ styleNo: "", itemName: "", buyerName: "", quantity: "", description: "", receivedBy: "" });
+      setFormData({ styleNo: "", itemName: "", buyerName: "", garmentName: "", quantity: "", description: "", receivedBy: "" });
       setShowForm(false);
     } catch (error) {
       console.error("Error adding document: ", error);
@@ -79,7 +93,7 @@ export default function SamplesPage() {
     }
   };
 
-  // স্ট্যাটাস আপডেট করার ফাংশন
+  // স্ট্যাটাস আপডেট
   const handleUpdateStatus = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!updatingSample) return;
@@ -108,16 +122,37 @@ export default function SamplesPage() {
     }
   };
 
+  // ফিল্টার করা স্যাম্পল লিস্ট
+  const filteredSamples = samples.filter(s => filterGarment === "All" || s.garmentName === filterGarment);
+
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h2 className="text-3xl font-bold text-brand-navy">Sample Tracking</h2>
-        <button 
-          onClick={() => setShowForm(!showForm)}
-          className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-navy/90 transition flex items-center gap-2"
-        >
-          <PlusCircle size={18} /> New Sample
-        </button>
+        
+        <div className="flex items-center gap-3">
+          {/* গার্মেন্টস ফিল্টার */}
+          <div className="flex items-center gap-2 bg-white border p-2 rounded-lg shadow-sm">
+            <Filter size={20} className="text-brand-navy" />
+            <select 
+              className="font-medium text-brand-navy outline-none bg-transparent cursor-pointer"
+              value={filterGarment} 
+              onChange={(e) => setFilterGarment(e.target.value)}
+            >
+              <option value="All">All Garments</option>
+              {garments.map((g) => (
+                <option key={g.id} value={g.name}>{g.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <button 
+            onClick={() => setShowForm(!showForm)}
+            className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-navy/90 transition flex items-center gap-2"
+          >
+            <PlusCircle size={18} /> New Sample
+          </button>
+        </div>
       </div>
 
       {/* নতুন স্যাম্পল ফর্ম */}
@@ -125,6 +160,26 @@ export default function SamplesPage() {
         <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow-md border border-gray-200 mb-6">
           <h3 className="text-lg font-bold mb-4 text-brand-navy">Add New Accessories Sample</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            
+            {/* গার্মেন্টস সিলেক্ট */}
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium mb-1 text-gray-700">Select Garments</label>
+              <div className="relative">
+                <Building2 size={18} className="absolute left-3 top-2.5 text-gray-400" />
+                <select 
+                  required 
+                  className="w-full border p-2 pl-10 rounded-lg" 
+                  value={formData.garmentName} 
+                  onChange={(e) => setFormData({...formData, garmentName: e.target.value})}
+                >
+                  <option value="" disabled>-- Select Garments --</option>
+                  {garments.map((g) => (
+                    <option key={g.id} value={g.name}>{g.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
             <input required placeholder="Style No" className="border p-2 rounded-lg" value={formData.styleNo} onChange={(e) => setFormData({...formData, styleNo: e.target.value})} />
             <input required placeholder="Accessory Name" className="border p-2 rounded-lg" value={formData.itemName} onChange={(e) => setFormData({...formData, itemName: e.target.value})} />
             <input required placeholder="Buyer Name" className="border p-2 rounded-lg" value={formData.buyerName} onChange={(e) => setFormData({...formData, buyerName: e.target.value})} />
@@ -186,14 +241,21 @@ export default function SamplesPage() {
 
       {/* স্যাম্পল লিস্ট */}
       <div className="space-y-4">
-        {samples.length === 0 && <p className="text-gray-500">কোনো স্যাম্পল পাওয়া যায়নি।</p>}
+        {filteredSamples.length === 0 && <p className="text-gray-500">কোনো স্যাম্পল পাওয়া যায়নি।</p>}
         
-        {samples.map((sample) => (
+        {filteredSamples.map((sample) => (
           <div key={sample.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
             <div className="flex justify-between items-start mb-6 border-b pb-4">
               <div>
+                {/* গার্মেন্টসের নাম দেখানো */}
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="bg-gray-100 text-gray-800 px-2 py-0.5 rounded text-xs font-bold flex items-center gap-1">
+                    <Building2 size={12}/> {sample.garmentName || "Unknown Garments"}
+                  </span>
+                  <span className="text-xs text-gray-500">Buyer: {sample.buyerName}</span>
+                </div>
                 <h3 className="text-xl font-bold text-brand-navy">{sample.itemName} ({sample.styleNo})</h3>
-                <p className="text-sm text-gray-500">Buyer: {sample.buyerName} | Qty: {sample.quantity} pcs</p>
+                <p className="text-sm text-gray-500">Qty: {sample.quantity} pcs</p>
                 {sample.description && <p className="text-sm text-gray-700 mt-1"><strong>Details:</strong> {sample.description}</p>}
               </div>
               <div className="text-right">
@@ -225,7 +287,6 @@ export default function SamplesPage() {
                     <span className="text-sm text-gray-500 flex items-center gap-1 mt-1">
                       <Clock size={14} /> {formatDateTime(event.date)} • Party: {event.party}
                     </span>
-                    {/* Received By স্টাফের নাম দেখানো */}
                     {event.receivedBy && (
                       <span className="text-xs text-brand-navy flex items-center gap-1 mt-0.5">
                         <User size={12}/> Received By: {event.receivedBy}
