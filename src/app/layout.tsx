@@ -20,22 +20,43 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   const pathname = usePathname();
 
   useEffect(() => {
+    // Service Worker রেজিস্টার (PWA-র জন্য)
     if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch((err) => { console.log('SW registration failed: ', err); });
+      navigator.serviceWorker.register('/sw.js').catch((err) => {
+        console.log('SW registration failed: ', err);
+      });
     }
 
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      
       if (currentUser && currentUser.email) {
-        const docSnap = await getDoc(doc(db, "users", currentUser.email));
-        if (docSnap.exists()) setRole(docSnap.data().role);
+        // ১. নতুন অ্যাডমিন ইমেইলের জন্য ফলব্যাক লজিক
+        if (currentUser.email === "admin@jahid.com") {
+          setRole("admin");
+        } else {
+          // ২. অন্যান্য ইউজারদের জন্য ফায়ারবেস থেকে রোল চেক
+          try {
+            const docSnap = await getDoc(doc(db, "users", currentUser.email));
+            if (docSnap.exists()) {
+              setRole(docSnap.data().role || "manager");
+            } else {
+              setRole("manager"); // ডকুমেন্ট না থাকলে ডিফল্ট
+            }
+          } catch (error) {
+            console.log("Error fetching role:", error);
+            setRole("manager");
+          }
+        }
       }
+      
       setLoading(false);
       if (!currentUser && pathname !== "/login") router.push("/login");
     });
     return () => unsubscribe();
   }, [pathname, router]);
 
+  // পেজ পরিবর্তন হলে মোবাইল মেনু বন্ধ হবে
   useEffect(() => { setIsMobileMenuOpen(false); }, [pathname]);
 
   const handleLogout = async () => {
@@ -43,20 +64,20 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     router.push("/login");
   };
 
-  // ম্যানেজারদের জন্যও Staff মেনু চালু করা হলো
+  // সাইডবারের মেনু (রোল অনুযায়ী লুকানো/দেখানো হবে)
   const navLinks = [
-    { name: "Dashboard", href: "/", icon: <LayoutDashboard size={18} />, roles: ["admin", "manager", "merchandiser"] },
-    { name: "Sample Tracking", href: "/samples", icon: <Package size={18} />, roles: ["admin", "manager", "merchandiser"] },
-    { name: "Categories", href: "/categories", icon: <FolderPlus size={18} />, roles: ["admin", "manager"] }, // ম্যানেজারদের জন্যও চালু
-    { name: "Products", href: "/products", icon: <Box size={18} />, roles: ["admin", "manager"] }, // ম্যানেজারদের জন্যও চালু
-    { name: "Warehouse", href: "/warehouse", icon: <Store size={18} />, roles: ["admin"] },
+    { name: "Dashboard", href: "/", icon: <LayoutDashboard size={18} />, roles: ["admin", "manager", "assistant_manager", "warehouse_manager", "merchandiser", "engineer", "quality_inspector"] },
+    { name: "Sample Tracking", href: "/samples", icon: <Package size={18} />, roles: ["admin", "manager", "assistant_manager", "merchandiser", "quality_inspector"] },
+    { name: "Categories", href: "/categories", icon: <FolderPlus size={18} />, roles: ["admin", "manager"] },
+    { name: "Products", href: "/products", icon: <Box size={18} />, roles: ["admin", "manager"] },
+    { name: "Warehouse", href: "/warehouse", icon: <Store size={18} />, roles: ["admin", "warehouse_manager"] },
     { name: "Shops", href: "/shops", icon: <Building2 size={18} />, roles: ["admin"] },
-    { name: "Shop Inventory", href: "/shop-inventory", icon: <ClipboardList size={18} />, roles: ["admin", "manager"] },
-    { name: "POS (Sales)", href: "/pos", icon: <ShoppingCart size={18} />, roles: ["admin", "manager"] },
-    { name: "Sales History", href: "/sales", icon: <History size={18} />, roles: ["admin", "manager"] },
-    { name: "Corporate Orders", href: "/orders", icon: <ShoppingBag size={18} />, roles: ["admin", "manager"] },
-    { name: "Stock Logs", href: "/stock-logs", icon: <History size={18} />, roles: ["admin"] },
-    { name: "Staff", href: "/staff", icon: <UserPlus size={18} />, roles: ["admin", "manager"] }, // ম্যানেজারদের জন্যও চালু
+    { name: "Shop Inventory", href: "/shop-inventory", icon: <ClipboardList size={18} />, roles: ["admin", "manager", "assistant_manager"] },
+    { name: "POS (Sales)", href: "/pos", icon: <ShoppingCart size={18} />, roles: ["admin", "manager", "assistant_manager"] },
+    { name: "Sales History", href: "/sales", icon: <History size={18} />, roles: ["admin", "manager", "assistant_manager"] },
+    { name: "Corporate Orders", href: "/orders", icon: <ShoppingBag size={18} />, roles: ["admin", "manager", "assistant_manager", "merchandiser"] },
+    { name: "Stock Logs", href: "/stock-logs", icon: <History size={18} />, roles: ["admin", "warehouse_manager"] },
+    { name: "Staff", href: "/staff", icon: <UserPlus size={18} />, roles: ["admin", "manager"] },
   ];
 
   return (
@@ -84,7 +105,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               </button>
             </div>
 
-            {/* ওভারলে (মেনু ওপেন থাকলে পেছনে কালো আভা, ক্লিক করলে বন্ধ হবে) */}
+            {/* ওভারলে */}
             {isMobileMenuOpen && (
               <div 
                 className="fixed inset-0 bg-black/50 z-30 md:hidden" 
@@ -123,7 +144,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
 
             {/* মেইন কন্টেন্ট */}
             <main className="flex-1 overflow-y-auto h-full pt-14 md:pt-0">
-              <div className="p-4 md:p-6 pb-20"> {/* নিচে প্যাডিং বাড়ানো হলো */}
+              <div className="p-4 md:p-6 pb-20">
                 {children}
               </div>
             </main>
