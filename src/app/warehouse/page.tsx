@@ -3,28 +3,25 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, increment, getDoc, setDoc } from "firebase/firestore";
-import { Store, Package, Search, Edit, X, ArrowRightCircle, History, Filter } from "lucide-react";
+import { Package, Search, Edit, X, ArrowRightCircle, History, PlusCircle, ShoppingCart, Trash2, Factory } from "lucide-react";
 
 export default function WarehousePage() {
   const [products, setProducts] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
   const [transfers, setTransfers] = useState<any[]>([]);
   
-  // ফিল্টার ও সার্চ
+  // কার্ট (একাধিক আইটেম ট্রান্সফারের জন্য)
+  const [cart, setCart] = useState<any[]>([]);
+  const [selectedShop, setSelectedShop] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [historyFilter, setHistoryFilter] = useState("All");
-  
-  // ট্রান্সফার মডাল স্টেট
-  const [showTransferModal, setShowTransferModal] = useState(false);
-  const [transferData, setTransferData] = useState({
-    product: null, varIndex: -1, qty: 0, shop: ""
-  });
 
-  // এডিট মডাল স্টেট
+  // প্রোডাকশন (নতুন মাল যোগ) স্টেট
+  const [showProdModal, setShowProdModal] = useState(false);
+  const [prodData, setProdData] = useState({ productId: "", varIndex: -1, qty: 0 });
+
+  // এডিট স্টেট
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editData, setEditData] = useState({
-    productId: "", varIndex: -1, newStock: 0, newPrice: 0
-  });
+  const [editData, setEditData] = useState({ productId: "", varIndex: -1, newStock: 0, newPrice: 0 });
 
   const [message, setMessage] = useState("");
 
@@ -36,65 +33,130 @@ export default function WarehousePage() {
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setShops(data);
-      if (data.length > 0) setTransferData(prev => ({ ...prev, shop: data[0].name }));
+      if (data.length > 0 && !selectedShop) setSelectedShop(data[0].name);
     });
 
-    // ট্রান্সফার হিস্ট্রি লোড
     const unsubTransfers = onSnapshot(query(collection(db, "stock_logs"), orderBy("createdAt", "desc")), (snapshot) => {
       const allLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // শুধু ওয়্যারহাউস ট্রান্সফারগুলো ফিল্টার
       setTransfers(allLogs.filter((log: any) => log.type === "Warehouse Transfer"));
     });
 
     return () => { unsubProducts(); unsubShops(); unsubTransfers(); };
-  }, []);
+  }, [selectedShop]);
 
   const filteredProducts = products.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const filteredHistory = transfers.filter(t => historyFilter === "All" || t.shop === historyFilter);
-
-  // ট্রান্সফার হ্যান্ডলার
-  const handleTransfer = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const { product, varIndex, qty, shop } = transferData;
-    setMessage("");
-
-    if (!product || varIndex === -1 || qty <= 0 || !shop) { setMessage("সব তথ্য সঠিকভাবে দিন!"); return; }
-
+  // কার্টে আইটেম যোগ করা
+  const addToCart = (product: any, varIndex: number) => {
     const variation = product.variations[varIndex];
-    if (qty > variation.stock) { setMessage(`Error: ওয়্যারহাউসে মাত্র ${variation.stock} পিস আছে!`); return; }
+    const existingIndex = cart.findIndex(c => c.productId === product.id && c.varIndex === varIndex);
+    
+    if (existingIndex >= 0) {
+      // আগে থেকে থাকলে পরিমাণ বাড়বে
+      const newCart = [...cart];
+      newCart[existingIndex].qty += 1;
+      setCart(newCart);
+    } else {
+      setCart([...cart, { 
+        productId: product.id, 
+        varIndex, 
+        name: product.name, 
+        size: variation.size, 
+        color: variation.color, 
+        qty: 1, 
+        maxStock: variation.stock 
+      }]);
+    }
+  };
+
+  // কার্ট আপডেট (পরিমাণ)
+  const updateCartQty = (index: number, qty: number) => {
+    const newCart = [...cart];
+    newCart[index].qty = qty;
+    setCart(newCart);
+  };
+
+  // কার্ট থেকে বাদ দেওয়া
+  const removeFromCart = (index: number) => {
+    setCart(cart.filter((_, i) => i !== index));
+  };
+
+  // সব একসাথে ট্রান্সফার করা
+  const handleBulkTransfer = async () => {
+    if (cart.length === 0 || !selectedShop) {
+      setMessage("Error: কার্টে আইটেম নেই বা দোকান সিলেক্ট করা হয়নি!"); return;
+    }
 
     try {
-      const updatedVariations = [...product.variations];
-      updatedVariations[varIndex].stock -= qty;
-      await updateDoc(doc(db, "products", product.id), { variations: updatedVariations });
+      for (const item of cart) {
+        if (item.qty > item.maxStock) {
+          setMessage(`Error: ${item.name}-এর স্টক পর্যাপ্ত নয়!`); return;
+        }
 
-      const shopInvId = `${shop}_${product.id}_${variation.size}_${variation.color}`.replace(/\s+/g, '_');
-      const shopInvRef = doc(db, "shop_inventories", shopInvId);
-      const shopInvSnap = await getDoc(shopInvRef);
+        const product = products.find(p => p.id === item.productId);
+        const variation = product.variations[item.varIndex];
 
-      if (shopInvSnap.exists()) {
-        await updateDoc(shopInvRef, { stock: increment(qty) });
-      } else {
-        await setDoc(shopInvRef, {
-          shop: shop, productName: product.name, category: product.category,
-          size: variation.size, color: variation.color, stock: qty,
-          costPrice: variation.costPrice, sellingPrice: variation.sellingPrice || 0
+        // ১. ওয়্যারহাউস স্টক কমানো
+        const updatedVariations = [...product.variations];
+        updatedVariations[item.varIndex].stock -= item.qty;
+        await updateDoc(doc(db, "products", product.id), { variations: updatedVariations });
+
+        // ২. দোকানের ইনভেন্টরি বাড়ানো
+        const shopInvId = `${selectedShop}_${product.id}_${variation.size}_${variation.color}`.replace(/\s+/g, '_');
+        const shopInvRef = doc(db, "shop_inventories", shopInvId);
+        const shopInvSnap = await getDoc(shopInvRef);
+
+        if (shopInvSnap.exists()) {
+          await updateDoc(shopInvRef, { stock: increment(item.qty) });
+        } else {
+          await setDoc(shopInvRef, {
+            shop: selectedShop, productName: product.name, category: product.category,
+            size: variation.size, color: variation.color, stock: item.qty,
+            costPrice: variation.costPrice
+          });
+        }
+
+        // ৩. লগ সেভ
+        await addDoc(collection(db, "stock_logs"), {
+          shop: selectedShop, productName: product.name, size: variation.size, color: variation.color,
+          quantity: item.qty, type: "Warehouse Transfer", date: new Date().toISOString(), createdAt: new Date().toISOString()
         });
       }
 
-      // লগ সেভ (তারিখ ও সময়সহ)
+      setMessage(`Success: ${cart.length} টি আইটেম ${selectedShop}-এ পাঠানো হয়েছে!`);
+      setCart([]);
+    } catch (error) {
+      console.error(error);
+      setMessage("ট্রান্সফার করতে সমস্যা হয়েছে!");
+    }
+  };
+
+  // প্রোডাকশন এন্ট্রি (নতুন মাল যোগ)
+  const handleProduction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { productId, varIndex, qty } = prodData;
+    const product = products.find(p => p.id === productId);
+    if (!product || varIndex === -1 || qty <= 0) return;
+
+    try {
+      const updatedVariations = [...product.variations];
+      updatedVariations[varIndex].stock += Number(qty);
+      await updateDoc(doc(db, "products", productId), { variations: updatedVariations });
+
+      // লগ সেভ
+      const variation = product.variations[varIndex];
       await addDoc(collection(db, "stock_logs"), {
-        shop: shop, productName: product.name, size: variation.size, color: variation.color,
-        quantity: qty, type: "Warehouse Transfer", date: new Date().toISOString(), createdAt: new Date().toISOString()
+        shop: "Warehouse", productName: product.name, size: variation.size, color: variation.color,
+        quantity: qty, type: "Production Inward", date: new Date().toISOString(), createdAt: new Date().toISOString()
       });
 
-      setMessage(`Success: ${qty} পিস ${product.name} ${shop}-এ পাঠানো হয়েছে!`);
-      setShowTransferModal(false);
-    } catch (error) { setMessage("ট্রান্সফার করতে সমস্যা হয়েছে!"); }
+      setMessage(`Success: ${qty} পিস নতুন মাল ওয়্যারহাউসে যোগ হয়েছে!`);
+      setShowProdModal(false);
+      setProdData({ productId: "", varIndex: -1, qty: 0 });
+    } catch (error) { setMessage("প্রোডাকশন যোগ করতে সমস্যা হয়েছে!"); }
   };
 
   const handleEdit = async (e: React.FormEvent) => {
@@ -114,14 +176,17 @@ export default function WarehousePage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto pb-10">
-      <h2 className="text-2xl font-bold text-brand-navy mb-4">Warehouse Stock</h2>
+    <div className="max-w-6xl mx-auto pb-24">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-bold text-brand-navy">Warehouse Stock</h2>
+        <button onClick={() => setShowProdModal(true)} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
+          <Factory size={16}/> Add Production
+        </button>
+      </div>
 
-      {message && (
-        <div className={`p-3 mb-4 rounded-lg font-medium text-sm ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>{message}</div>
-      )}
+      {message && <div className={`p-3 mb-4 rounded-lg font-medium text-sm ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>{message}</div>}
 
-      <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-6 flex items-center gap-2">
+      <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
         <Search size={18} className="text-gray-400 ml-2" />
         <input type="text" placeholder="Search product..." className="w-full bg-transparent outline-none text-sm py-1" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
       </div>
@@ -150,7 +215,7 @@ export default function WarehousePage() {
                       <td className="px-2 py-2 text-right font-bold text-brand-navy">{v.stock}</td>
                       <td className="px-2 py-2 text-center flex justify-center gap-1">
                         <button onClick={() => { setEditData({ productId: product.id, varIndex: i, newStock: v.stock, newPrice: v.costPrice }); setShowEditModal(true); }} className="bg-gray-100 text-gray-600 p-1.5 rounded hover:bg-gray-200 transition"><Edit size={14} /></button>
-                        <button onClick={() => { setTransferData({ product, varIndex: i, qty: 0, shop: shops[0]?.name || "" }); setShowTransferModal(true); }} className="bg-blue-50 text-blue-600 p-1.5 rounded hover:bg-blue-100 transition"><ArrowRightCircle size={14} /></button>
+                        <button onClick={() => addToCart(product, i)} className="bg-blue-50 text-blue-600 p-1.5 rounded hover:bg-blue-100 transition"><PlusCircle size={14} /></button>
                       </td>
                     </tr>
                   ))}
@@ -161,43 +226,51 @@ export default function WarehousePage() {
         ))}
       </div>
 
-      {/* ট্রান্সফার হিস্ট্রি সেকশন */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 border-b bg-gray-50 flex flex-col md:flex-row justify-between md:items-center gap-2">
-          <h3 className="font-bold text-gray-700 flex items-center gap-2"><History size={18}/> Transfer History</h3>
-          <div className="flex items-center gap-2 bg-white border p-1.5 rounded-lg">
-            <Filter size={14} className="text-gray-400" />
-            <select className="text-xs font-medium text-brand-navy outline-none bg-transparent cursor-pointer" value={historyFilter} onChange={(e) => setHistoryFilter(e.target.value)}>
-              <option value="All">All Shops</option>
-              {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-            </select>
+      {/* কার্ট (নিচে ফিক্সড) */}
+      {cart.length > 0 && (
+        <div className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-300 shadow-2xl p-4 z-40 md:static md:shadow-none md:border-none md:p-0 md:mb-6">
+          <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center gap-3">
+            <div className="flex-1 w-full">
+              <h4 className="font-bold text-brand-navy mb-2 flex items-center gap-2"><ShoppingCart size={16}/> Transfer Cart ({cart.length})</h4>
+              <div className="flex overflow-x-auto gap-2 pb-2">
+                {cart.map((item, i) => (
+                  <div key={i} className="bg-gray-50 border rounded-lg p-2 text-xs flex items-center gap-2 min-w-max">
+                    <div>
+                      <p className="font-bold">{item.name}</p>
+                      <p className="text-[10px] text-gray-500">{item.size}/{item.color}</p>
+                    </div>
+                    <input type="number" min="1" max={item.maxStock} className="w-14 border p-1 rounded text-center" value={item.qty} onChange={(e) => updateCartQty(i, Number(e.target.value))} />
+                    <button onClick={() => removeFromCart(i)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={14}/></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2 w-full md:w-auto">
+              <select className="border p-2 rounded-lg text-sm font-medium w-full md:w-40" value={selectedShop} onChange={(e) => setSelectedShop(e.target.value)}>
+                {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+              <button onClick={handleBulkTransfer} className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap hover:bg-brand-navy/90">Transfer All</button>
+            </div>
           </div>
         </div>
-        
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs md:text-sm">
+      )}
+
+      {/* ট্রান্সফার হিস্ট্রি */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-4 border-b bg-gray-50 flex items-center gap-2 font-bold text-gray-700 text-sm">
+          <History size={18}/> Transfer History
+        </div>
+        <div className="overflow-x-auto max-h-64">
+          <table className="w-full text-left text-xs">
             <thead className="bg-gray-100 text-gray-600">
-              <tr>
-                <th className="px-3 py-2 font-semibold">Date & Time</th>
-                <th className="px-3 py-2 font-semibold">Product</th>
-                <th className="px-3 py-2 font-semibold text-center">Qty</th>
-                <th className="px-3 py-2 font-semibold text-right">Destination</th>
-              </tr>
+              <tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Product</th><th className="px-3 py-2 text-center">Qty</th><th className="px-3 py-2 text-right">To</th></tr>
             </thead>
             <tbody>
-              {filteredHistory.length === 0 && (
-                <tr><td colSpan={4} className="text-center py-6 text-gray-500">কোনো ট্রান্সফার হিস্ট্রি নেই।</td></tr>
-              )}
-              {filteredHistory.map(log => (
+              {transfers.length === 0 && <tr><td colSpan={4} className="text-center py-4 text-gray-500">কোনো হিস্ট্রি নেই।</td></tr>}
+              {transfers.map(log => (
                 <tr key={log.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-3 py-2 text-gray-500">
-                    <div className="font-medium text-gray-800">{new Date(log.createdAt).toLocaleDateString()}</div>
-                    <div className="text-[10px]">{new Date(log.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <div className="font-bold text-brand-navy">{log.productName}</div>
-                    <div className="text-[10px] text-gray-500">{log.size} / {log.color}</div>
-                  </td>
+                  <td className="px-3 py-2 text-gray-500">{new Date(log.createdAt).toLocaleDateString()} <br/><span className="text-[10px]">{new Date(log.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></td>
+                  <td className="px-3 py-2"><span className="font-bold text-brand-navy">{log.productName}</span><br/><span className="text-[10px] text-gray-500">{log.size}/{log.color}</span></td>
                   <td className="px-3 py-2 text-center font-bold text-green-600">{log.quantity}</td>
                   <td className="px-3 py-2 text-right font-medium text-brand-navy">{log.shop}</td>
                 </tr>
@@ -207,33 +280,37 @@ export default function WarehousePage() {
         </div>
       </div>
 
-      {/* ট্রান্সফার মডাল */}
-      {showTransferModal && transferData.product && (
+      {/* প্রোডাকশন মডাল */}
+      {showProdModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-brand-navy">Transfer Stock</h3>
-              <button onClick={() => setShowTransferModal(false)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
-            </div>
-            <div className="bg-gray-50 p-3 rounded-lg mb-4 text-sm">
-              <p className="font-bold text-brand-navy">{transferData.product.name}</p>
-              <p className="text-gray-500 text-xs">{transferData.product.variations[transferData.varIndex].size} / {transferData.product.variations[transferData.varIndex].color}</p>
-              <p className="text-gray-500 text-xs mt-1">Available: <strong>{transferData.product.variations[transferData.varIndex].stock} pcs</strong></p>
-            </div>
-            <form onSubmit={handleTransfer}>
-              <div className="mb-3">
-                <label className="block text-sm font-medium mb-1">Quantity (pcs)</label>
-                <input required type="number" min="1" max={transferData.product.variations[transferData.varIndex].stock} className="w-full border p-2 rounded-lg font-bold" value={transferData.qty || ""} onChange={(e) => setTransferData({...transferData, qty: Number(e.target.value)})} />
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-1">Destination Shop</label>
-                <select className="w-full border p-2 rounded-lg text-sm font-medium" value={transferData.shop} onChange={(e) => setTransferData({...transferData, shop: e.target.value})}>
-                  {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+            <h3 className="text-lg font-bold text-brand-navy mb-4">Add New Production</h3>
+            <form onSubmit={handleProduction} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium mb-1">Select Product</label>
+                <select required className="w-full border p-2 rounded-lg text-sm" onChange={(e) => setProdData({...prodData, productId: e.target.value, varIndex: -1})} value={prodData.productId}>
+                  <option value="" disabled>-- Select Product --</option>
+                  {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.category})</option>)}
                 </select>
               </div>
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setShowTransferModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded-lg text-sm">Transfer Now</button>
+              {prodData.productId && (
+                <div>
+                  <label className="block text-xs font-medium mb-1">Select Size/Color</label>
+                  <select required className="w-full border p-2 rounded-lg text-sm" onChange={(e) => setProdData({...prodData, varIndex: Number(e.target.value)})} value={prodData.varIndex}>
+                    <option value="-1" disabled>-- Select --</option>
+                    {products.find(p => p.id === prodData.productId)?.variations.map((v: any, i: number) => (
+                      <option key={i} value={i}>{v.size} / {v.color}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label className="block text-xs font-medium mb-1">Production Quantity (pcs)</label>
+                <input required type="number" min="1" className="w-full border p-2 rounded-lg text-sm font-bold" value={prodData.qty || ""} onChange={(e) => setProdData({...prodData, qty: Number(e.target.value)})} />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowProdModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">Add to Stock</button>
               </div>
             </form>
           </div>
@@ -244,20 +321,17 @@ export default function WarehousePage() {
       {showEditModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-brand-navy">Edit Warehouse Stock</h3>
-              <button onClick={() => setShowEditModal(false)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
-            </div>
-            <form onSubmit={handleEdit}>
-              <div className="mb-3">
-                <label className="block text-sm font-medium mb-1">New Stock Quantity</label>
+            <h3 className="text-lg font-bold text-brand-navy mb-4">Edit Warehouse Stock</h3>
+            <form onSubmit={handleEdit} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium mb-1">New Stock</label>
                 <input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newStock} onChange={(e) => setEditData({...editData, newStock: Number(e.target.value)})} />
               </div>
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-1">Cost Price (৳)</label>
+              <div>
+                <label className="block text-xs font-medium mb-1">Cost Price (৳)</label>
                 <input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newPrice} onChange={(e) => setEditData({...editData, newPrice: Number(e.target.value)})} />
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowEditModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded-lg text-sm">Save</button>
               </div>
