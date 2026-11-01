@@ -9,19 +9,28 @@ type ViewMode = "garments" | "buyers" | "samples";
 export default function SamplesPage() {
   const [samples, setSamples] = useState<any[]>([]);
   const [staffList, setStaffList] = useState<any[]>([]);
+  const [garments, setGarments] = useState<any[]>([]); 
   const [viewMode, setViewMode] = useState<ViewMode>("garments");
   
   const [selectedGarment, setSelectedGarment] = useState("");
   const [selectedBuyer, setSelectedBuyer] = useState("");
   
   const [showForm, setShowForm] = useState(false);
+  
+  // ফর্ম স্টেট
   const [formData, setFormData] = useState({ 
-    styleNo: "", itemName: "", quantity: "", description: "", receivedBy: "" 
+    styleNo: "", 
+    itemName: "", 
+    buyerName: "", 
+    garmentName: "",
+    quantity: "", 
+    description: "", 
+    receivedBy: "" 
   });
 
   const [editingSample, setEditingSample] = useState<any>(null);
   const [editSampleData, setEditSampleData] = useState({ 
-    styleNo: "", itemName: "", quantity: "", description: "" 
+    styleNo: "", itemName: "", buyerName: "", quantity: "", description: "" 
   });
 
   const [updatingSample, setUpdatingSample] = useState<any>(null);
@@ -45,22 +54,40 @@ export default function SamplesPage() {
     const unsubStaff = onSnapshot(query(collection(db, "users")), (snapshot) => {
       setStaffList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    return () => { unsubSamples(); unsubStaff(); };
+    const unsubGarments = onSnapshot(query(collection(db, "garments")), (snapshot) => {
+      setGarments(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+    return () => { unsubSamples(); unsubStaff(); unsubGarments(); };
   }, []);
+
+  // নতুন ফর্ম ওপেন করার সময় ফিল্ডগুলো ফাঁকা বা অটো ফিল করা
+  const openNewForm = () => {
+    setFormData({
+      styleNo: "", 
+      itemName: "", 
+      buyerName: selectedBuyer || "", // যদি বায়ার ফোল্ডারে থাকেন তবে অটো আসবে
+      garmentName: selectedGarment || "", // যদি গার্মেন্টস ফোল্ডারে থাকেন
+      quantity: "", 
+      description: "", 
+      receivedBy: "" 
+    });
+    setShowForm(true);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.garmentName) { alert("গার্মেন্টস সিলেক্ট করুন!"); return; }
+    if (!formData.buyerName) { alert("বায়ার নাম দিন!"); return; }
+
     try {
       await addDoc(collection(db, "samples"), {
         ...formData,
-        garmentName: selectedGarment, // অটোমেটিক সিলেক্টেড
-        buyerName: selectedBuyer, // অটোমেটিক সিলেক্টেড
         quantity: Number(formData.quantity),
         currentStatus: "Received from Buyer",
         createdAt: new Date().toISOString(),
-        timeline: [{ step: "Received from Buyer", date: new Date().toISOString(), party: selectedBuyer, receivedBy: formData.receivedBy }],
+        timeline: [{ step: "Received from Buyer", date: new Date().toISOString(), party: formData.buyerName, receivedBy: formData.receivedBy }],
       });
-      setFormData({ styleNo: "", itemName: "", quantity: "", description: "", receivedBy: "" });
+      setFormData({ styleNo: "", itemName: "", buyerName: "", garmentName: "", quantity: "", description: "", receivedBy: "" });
       setShowForm(false);
     } catch (error) { alert("ডেটা সেভ করতে সমস্যা হয়েছে!"); }
   };
@@ -71,7 +98,7 @@ export default function SamplesPage() {
     try {
       await updateDoc(doc(db, "samples", editingSample.id), {
         styleNo: editSampleData.styleNo, itemName: editSampleData.itemName,
-        quantity: Number(editSampleData.quantity), description: editSampleData.description
+        buyerName: editSampleData.buyerName, quantity: Number(editSampleData.quantity), description: editSampleData.description
       });
       setEditingSample(null);
     } catch (error) { alert("এডিট করতে সমস্যা হয়েছে!"); }
@@ -127,7 +154,7 @@ export default function SamplesPage() {
           </h2>
         </div>
         {viewMode === "samples" && (
-          <button onClick={() => setShowForm(!showForm)} className="bg-brand-navy text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
+          <button onClick={openNewForm} className="bg-brand-navy text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
             <PlusCircle size={16} /> New Sample
           </button>
         )}
@@ -137,17 +164,25 @@ export default function SamplesPage() {
         <form onSubmit={handleSubmit} className="bg-white p-4 rounded-xl shadow-md border border-gray-200 mb-4 text-sm">
           <h3 className="font-bold mb-3 text-brand-navy">Add New Sample</h3>
           
-          {/* অটো সিলেক্ট করা গার্মেন্টস ও বায়ার দেখানো হলো */}
-          <div className="bg-blue-50 text-blue-800 text-xs p-2 rounded-lg mb-3 flex justify-between">
-            <span><strong>Garments:</strong> {selectedGarment}</span>
-            <span><strong>Buyer:</strong> {selectedBuyer}</span>
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            
+            {/* Garments Name ড্রপডাউন */}
+            <div className="md:col-span-2">
+              <label className="block text-xs font-medium mb-1">Select Garments <span className="text-red-500">*</span></label>
+              <select required className="w-full border p-1.5 rounded-lg" value={formData.garmentName} onChange={(e) => setFormData({...formData, garmentName: e.target.value})}>
+                <option value="" disabled>-- Select Garments --</option>
+                {garments.map((g) => <option key={g.id} value={g.name}>{g.name}</option>)}
+              </select>
+            </div>
+
             <input required placeholder="Style No" className="border p-1.5 rounded-lg" value={formData.styleNo} onChange={(e) => setFormData({...formData, styleNo: e.target.value})} />
             <input required placeholder="Accessory Name" className="border p-1.5 rounded-lg" value={formData.itemName} onChange={(e) => setFormData({...formData, itemName: e.target.value})} />
             
-            {/* Buyer Name ঘরটি বাদ দেওয়া হলো */}
+            {/* Buyer Name টেক্সট ইনপুট */}
+            <div>
+              <label className="block text-xs font-medium mb-1">Buyer Name <span className="text-red-500">*</span></label>
+              <input required placeholder="e.g. H&M, Zara" className="w-full border p-1.5 rounded-lg" value={formData.buyerName} onChange={(e) => setFormData({...formData, buyerName: e.target.value})} />
+            </div>
             
             <input required type="number" placeholder="Quantity" className="border p-1.5 rounded-lg" value={formData.quantity} onChange={(e) => setFormData({...formData, quantity: e.target.value})} />
             <input placeholder="Description" className="border p-1.5 rounded-lg md:col-span-2" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} />
@@ -197,7 +232,7 @@ export default function SamplesPage() {
                   <button onClick={() => handleCopyLink(sample.id)} className="text-blue-500 hover:text-blue-700 bg-blue-50 p-1.5 rounded-lg" title="Copy Tracking Link">
                     <Share2 size={16} />
                   </button>
-                  <button onClick={() => { setEditingSample(sample); setEditSampleData({ styleNo: sample.styleNo, itemName: sample.itemName, quantity: sample.quantity, description: sample.description || "" }); }} className="text-gray-400 hover:text-brand-navy bg-gray-50 p-1.5 rounded-lg">
+                  <button onClick={() => { setEditingSample(sample); setEditSampleData({ styleNo: sample.styleNo, itemName: sample.itemName, buyerName: sample.buyerName, quantity: sample.quantity, description: sample.description || "" }); }} className="text-gray-400 hover:text-brand-navy bg-gray-50 p-1.5 rounded-lg">
                     <Edit size={16} />
                   </button>
                   <button onClick={() => handleDeleteSample(sample.id)} className="text-gray-400 hover:text-red-600 bg-gray-50 p-1.5 rounded-lg">
@@ -249,6 +284,7 @@ export default function SamplesPage() {
             <form onSubmit={handleEditSample} className="text-sm space-y-3">
               <div><label className="block text-xs font-medium mb-1">Style No</label><input required className="w-full border p-1.5 rounded-lg" value={editSampleData.styleNo} onChange={(e) => setEditSampleData({...editSampleData, styleNo: e.target.value})} /></div>
               <div><label className="block text-xs font-medium mb-1">Item Name</label><input required className="w-full border p-1.5 rounded-lg" value={editSampleData.itemName} onChange={(e) => setEditSampleData({...editSampleData, itemName: e.target.value})} /></div>
+              <div><label className="block text-xs font-medium mb-1">Buyer Name</label><input required className="w-full border p-1.5 rounded-lg" value={editSampleData.buyerName} onChange={(e) => setEditSampleData({...editSampleData, buyerName: e.target.value})} /></div>
               <div><label className="block text-xs font-medium mb-1">Quantity</label><input required type="number" className="w-full border p-1.5 rounded-lg" value={editSampleData.quantity} onChange={(e) => setEditSampleData({...editSampleData, quantity: e.target.value})} /></div>
               <div><label className="block text-xs font-medium mb-1">Description</label><input className="w-full border p-1.5 rounded-lg" value={editSampleData.description} onChange={(e) => setEditSampleData({...editSampleData, description: e.target.value})} /></div>
               <div className="flex justify-end gap-2 pt-2">
