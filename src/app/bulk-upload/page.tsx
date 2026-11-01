@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { db } from "../../lib/firebase";
-import { collection, addDoc, getDocs, query, where, doc, updateDoc } from "firebase/firestore";
+import { collection, addDoc, getDocs, doc, updateDoc } from "firebase/firestore";
 import { Upload, CheckCircle, AlertCircle } from "lucide-react";
 
 export default function BulkUploadPage() {
@@ -74,19 +74,18 @@ export default function BulkUploadPage() {
         p.category === category
       );
 
+      // এখানে সেলিং প্রাইস বাদ দেওয়া হলো
       const newVariation = { 
         size, 
         color, 
         stock: qty, 
-        costPrice: rate, 
-        sellingPrice: 0 // সেল প্রাইস ০
+        costPrice: rate
       };
 
       if (existingProduct) {
         await updateDoc(doc(db, "products", existingProduct.id), {
           variations: [...existingProduct.variations, newVariation]
         });
-        // লোকাল অবজেক্ট আপডেট করা
         existingProduct.variations.push(newVariation);
       } else {
         const newDocRef = await addDoc(collection(db, "products"), {
@@ -108,7 +107,7 @@ export default function BulkUploadPage() {
     }
 
     setProcessedCount(count);
-    setMessage(`Success: ${count} টি আইটেম প্রসেস করা হয়েছে!`);
+    setMessage(`Success: ${count} টি আইটেম প্রসেস করা হয়েছে!`);
     setLoading(false);
     setRawData("");
   };
