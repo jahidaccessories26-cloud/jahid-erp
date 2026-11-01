@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { db, auth } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, increment, getDoc, setDoc } from "firebase/firestore";
-import { Package, Search, Edit, X, PlusCircle, ShoppingCart, Trash2, Factory, History, User, Filter, Calendar } from "lucide-react";
+import { Package, Search, Edit, X, PlusCircle, ShoppingCart, Trash2, Factory, History, User, Filter, Calendar, Check } from "lucide-react";
 
 export default function WarehousePage() {
   const [products, setProducts] = useState<any[]>([]);
@@ -11,7 +11,7 @@ export default function WarehousePage() {
   const [transfers, setTransfers] = useState<any[]>([]);
   const [dbCategories, setDbCategories] = useState<any[]>([]);
   
-  // কার্ট
+  // কার্ট সিস্টেম
   const [cart, setCart] = useState<any[]>([]);
   const [selectedShop, setSelectedShop] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -27,7 +27,7 @@ export default function WarehousePage() {
   const [showProdModal, setShowProdModal] = useState(false);
   const [prodData, setProdData] = useState({ productName: "", category: "", size: "", color: "", qty: "", costPrice: "" });
   
-  // প্রোডাক্ট নামের সাজেশন (অটো-কমপ্লিট)
+  // সাজেশন স্টেট
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestionRef = useRef<HTMLDivElement>(null);
 
@@ -70,11 +70,8 @@ export default function WarehousePage() {
       setTransfers(allLogs.filter((log: any) => log.type === "Warehouse Transfer" || log.type === "Production Inward"));
     });
 
-    // বাইরে ক্লিক করলে সাজেশন বন্ধ হবে
     const handleClickOutside = (event: MouseEvent) => {
-      if (suggestionRef.current && !suggestionRef.current.contains(event.target as Node)) {
-        setShowSuggestions(false);
-      }
+      if (suggestionRef.current && !suggestionRef.current.contains(event.target as Node)) setShowSuggestions(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
 
@@ -90,36 +87,49 @@ export default function WarehousePage() {
   );
 
   const allCategories = Array.from(new Set([...dbCategories.map(c => c.name), ...products.map(p => p.category)])).filter(Boolean);
-  
-  // সাজেশনের জন্য ইউনিক প্রোডাক্ট নাম
   const uniqueProductNames = Array.from(new Set(products.map(p => p.name)));
-  const filteredSuggestions = uniqueProductNames.filter(name => 
-    name.toLowerCase().includes(prodData.productName.toLowerCase())
-  );
+  const filteredSuggestions = uniqueProductNames.filter(name => name.toLowerCase().includes(prodData.productName.toLowerCase()));
 
-  // হিস্ট্রি ফিল্টার লজিক
   const filteredHistory = transfers.filter(t => {
     const matchShop = historyShopFilter === "All" || t.shop === historyShopFilter;
     const matchDate = historyDateFilter ? t.date.startsWith(historyDateFilter) : true;
     return matchShop && matchDate;
   });
 
+  // কার্টে আইটেম যোগ করা
   const addToCart = (product: any, varIndex: number) => {
     const variation = product.variations[varIndex];
     const existingIndex = cart.findIndex(c => c.productId === product.id && c.varIndex === varIndex);
     if (existingIndex >= 0) {
       const newCart = [...cart];
-      newCart[existingIndex].qty += 1;
+      newCart[existingIndex].qty = Number(newCart[existingIndex].qty) + 1;
       setCart(newCart);
     } else {
-      setCart([...cart, { productId: product.id, varIndex, name: product.name, size: variation.size, color: variation.color, qty: 1, maxStock: variation.stock }]);
+      setCart([...cart, { productId: product.id, varIndex, name: product.name, size: variation.size, color: variation.color, qty: "1", maxStock: variation.stock }]);
     }
   };
 
-  const updateCartQty = (index: number, qty: any) => {
+  // কার্টের পরিমাণ আপডেট (টাইপ করার সময়)
+  const updateCartQty = (index: number, qty: string) => {
     const newCart = [...cart];
     newCart[index].qty = qty;
     setCart(newCart);
+  };
+
+  // টিক বাটনে ক্লিক করলে পরিমাণ ভ্যালিডেট হবে
+  const confirmCartQty = (index: number) => {
+    const item = cart[index];
+    const qty = Number(item.qty);
+    if (qty <= 0) {
+      alert("পরিমাণ ০ এর বেশি হতে হবে!");
+      updateCartQty(index, "1");
+    } else if (qty > item.maxStock) {
+      alert(`সর্বোচ্চ ${item.maxStock} পিস দেওয়া যাবে!`);
+      updateCartQty(index, String(item.maxStock));
+    } else {
+      setMessage(`Success: ${item.name}-এর পরিমাণ ${qty} আপডেট হয়েছে!`);
+      setTimeout(() => setMessage(""), 2000);
+    }
   };
 
   const removeFromCart = (index: number) => setCart(cart.filter((_, i) => i !== index));
@@ -127,7 +137,6 @@ export default function WarehousePage() {
   const handleBulkTransfer = async () => {
     if (cart.length === 0 || !selectedShop) { setMessage("Error: কার্টে আইটেম নেই বা দোকান সিলেক্ট করা হয়নি!"); return; }
     
-    // চেক করা সব আইটেমের পরিমাণ ১ বা তার বেশি কিনা
     const invalidItem = cart.find(item => Number(item.qty) <= 0);
     if (invalidItem) { setMessage(`Error: ${invalidItem.name}-এর পরিমাণ সঠিকভাবে দিন!`); return; }
 
@@ -172,17 +181,13 @@ export default function WarehousePage() {
     const numQty = Number(qty);
     const numCost = Number(costPrice) || 0;
     
-    if (!productName || !category || !size || !color || numQty <= 0) { 
-      setMessage("Error: সব তথ্য সঠিকভাবে দিন!"); return; 
-    }
+    if (!productName || !category || !size || !color || numQty <= 0) { setMessage("Error: সব তথ্য সঠিকভাবে দিন!"); return; }
 
     try {
       let existingProduct = products.find(p => p.name.toLowerCase() === productName.toLowerCase() && p.category === category);
-
       if (existingProduct) {
         let updatedVariations = [...(existingProduct.variations || [])];
         const existingIndex = updatedVariations.findIndex(v => v.size === size && v.color === color);
-
         if (existingIndex >= 0) {
           updatedVariations[existingIndex].stock += numQty;
           if (numCost > 0) updatedVariations[existingIndex].costPrice = numCost;
@@ -204,7 +209,7 @@ export default function WarehousePage() {
         date: new Date().toISOString(), createdAt: new Date().toISOString()
       });
 
-      setMessage(`Success: ${numQty} পিস ${productName} (${size}/${color}) ওয়্যারহাউসে যোগ হয়েছে!`);
+      setMessage(`Success: ${numQty} পিস ${productName} (${size}/${color}) যোগ হয়েছে!`);
       setShowProdModal(false);
       setProdData({ productName: "", category: "", size: "", color: "", qty: "", costPrice: "" });
     } catch (error) { setMessage("প্রোডাকশন যোগ করতে সমস্যা হয়েছে!"); }
@@ -218,8 +223,8 @@ export default function WarehousePage() {
 
     try {
       const updatedVariations = [...product.variations];
-      updatedVariations[varIndex].stock = newStock;
-      updatedVariations[varIndex].costPrice = newPrice;
+      updatedVariations[varIndex].stock = Number(newStock);
+      updatedVariations[varIndex].costPrice = Number(newPrice);
       await updateDoc(doc(db, "products", productId), { variations: updatedVariations });
       setMessage("Success: স্টক ও দাম আপডেট হয়েছে!");
       setShowEditModal(false);
@@ -227,7 +232,7 @@ export default function WarehousePage() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto pb-24">
+    <div className="max-w-6xl mx-auto pb-32">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold text-brand-navy">Warehouse Stock</h2>
         <button onClick={() => { setProdData({ productName: "", category: "", size: "", color: "", qty: "", costPrice: "" }); setShowProdModal(true); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
@@ -237,7 +242,7 @@ export default function WarehousePage() {
 
       {message && <div className={`p-3 mb-4 rounded-lg font-medium text-sm ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>{message}</div>}
 
-      {/* ট্রান্সফার হিস্ট্রি (ফিল্টারসহ) */}
+      {/* ট্রান্সফার হিস্ট্রি */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
         <div className="p-3 border-b bg-gray-50 flex flex-col md:flex-row justify-between md:items-center gap-2">
           <h3 className="font-bold text-gray-700 text-sm flex items-center gap-2"><History size={16}/> Recent Activities</h3>
@@ -264,14 +269,8 @@ export default function WarehousePage() {
               {filteredHistory.length === 0 && <tr><td colSpan={5} className="text-center py-4 text-gray-500">কোনো লেনদেন নেই।</td></tr>}
               {filteredHistory.map(log => (
                 <tr key={log.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-3 py-2 text-gray-500">
-                    <div className="font-medium text-gray-800">{new Date(log.createdAt).toLocaleDateString()}</div>
-                    <div className="text-[11px]">{new Date(log.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className="font-bold text-brand-navy">{log.productName}</span><br/>
-                    <span className="text-[11px] text-gray-500">{log.size}/{log.color}</span>
-                  </td>
+                  <td className="px-3 py-2 text-gray-500"><div className="font-medium text-gray-800">{new Date(log.createdAt).toLocaleDateString()}</div><div className="text-[11px]">{new Date(log.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div></td>
+                  <td className="px-3 py-2"><span className="font-bold text-brand-navy">{log.productName}</span><br/><span className="text-[11px] text-gray-500">{log.size}/{log.color}</span></td>
                   <td className="px-3 py-2 text-center font-bold text-green-600">{log.type === "Warehouse Transfer" ? "-" : "+"}{log.quantity}</td>
                   <td className="px-3 py-2 font-medium text-brand-navy">{log.shop}</td>
                   <td className="px-3 py-2 text-right text-[11px] text-gray-600 flex items-center justify-end gap-1"><User size={12}/> {log.transferredBy || "System"}</td>
@@ -287,30 +286,31 @@ export default function WarehousePage() {
         <input type="text" placeholder="Search product..." className="w-full bg-transparent outline-none text-sm py-1" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
       </div>
 
+      {/* প্রোডাক্ট লিস্ট */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         {filteredProducts.map((product) => (
           <div key={product.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
             <div className="flex items-center gap-2 mb-3 border-b pb-2">
-              <div className="bg-brand-navy/10 p-1.5 rounded-lg"><Package className="text-brand-navy" size={18} /></div>
+              <div className="bg-brand-navy/10 p-1.5 rounded-lg"><Package className="text-brand-navy" size={20} /></div>
               <div>
-                <h3 className="text-sm font-bold text-brand-navy">{product.name}</h3>
-                <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">{product.category}</span>
+                <h3 className="text-base font-bold text-brand-navy">{product.name}</h3>
+                <span className="text-xs font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded">{product.category}</span>
               </div>
             </div>
             
             <div className="flex-1 overflow-x-auto">
-              <table className="w-full text-xs text-left mb-3">
-                <thead className="text-[10px] text-gray-500 uppercase bg-gray-50">
-                  <tr><th className="px-2 py-1">Size/Color</th><th className="px-2 py-1 text-right">Stock</th><th className="px-2 py-1 text-center">Action</th></tr>
+              <table className="w-full text-sm text-left mb-3">
+                <thead className="text-xs text-gray-500 uppercase bg-gray-50">
+                  <tr><th className="px-2 py-2">Size/Color</th><th className="px-2 py-2 text-right">Stock</th><th className="px-2 py-2 text-center">Action</th></tr>
                 </thead>
                 <tbody>
                   {product.variations.map((v: any, i: number) => (
                     <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="px-2 py-2 font-medium">{v.size} / {v.color}</td>
-                      <td className="px-2 py-2 text-right font-bold text-brand-navy">{v.stock}</td>
-                      <td className="px-2 py-2 text-center flex justify-center gap-1">
-                        <button onClick={() => { setEditData({ productId: product.id, varIndex: i, newStock: v.stock, newPrice: v.costPrice }); setShowEditModal(true); }} className="bg-gray-100 text-gray-600 p-1.5 rounded hover:bg-gray-200 transition"><Edit size={14} /></button>
-                        <button onClick={() => addToCart(product, i)} className="bg-blue-50 text-blue-600 p-1.5 rounded hover:bg-blue-100 transition"><PlusCircle size={14} /></button>
+                      <td className="px-2 py-3 font-medium">{v.size} / {v.color}</td>
+                      <td className="px-2 py-3 text-right font-bold text-brand-navy">{v.stock}</td>
+                      <td className="px-2 py-3 text-center flex justify-center gap-2">
+                        <button onClick={() => { setEditData({ productId: product.id, varIndex: i, newStock: v.stock, newPrice: v.costPrice }); setShowEditModal(true); }} className="bg-gray-100 text-gray-600 p-2 rounded-lg hover:bg-gray-200 transition"><Edit size={18} /></button>
+                        <button onClick={() => addToCart(product, i)} className="bg-blue-50 text-blue-600 p-2 rounded-lg hover:bg-blue-100 transition"><PlusCircle size={18} /></button>
                       </td>
                     </tr>
                   ))}
@@ -321,21 +321,37 @@ export default function WarehousePage() {
         ))}
       </div>
 
-      {/* কার্ট (০ সমস্যা সমাধান) */}
+      {/* কার্ট (বড় ইনপুট + টিক বাটন) */}
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-300 shadow-2xl p-4 z-40 md:static md:shadow-none md:border-none md:p-0 md:mb-6">
-          <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center gap-3">
+          <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center gap-4">
             <div className="flex-1 w-full">
-              <h4 className="font-bold text-brand-navy mb-2 flex items-center gap-2"><ShoppingCart size={16}/> Transfer Cart ({cart.length})</h4>
-              <div className="flex overflow-x-auto gap-2 pb-2">
+              <h4 className="font-bold text-brand-navy text-base mb-2 flex items-center gap-2"><ShoppingCart size={20}/> Transfer Cart ({cart.length})</h4>
+              <div className="flex overflow-x-auto gap-3 pb-2">
                 {cart.map((item, i) => (
-                  <div key={i} className="bg-gray-50 border rounded-lg p-2 text-xs flex items-center gap-2 min-w-max">
+                  <div key={i} className="bg-gray-50 border rounded-lg p-3 text-sm flex items-center gap-3 min-w-max shadow-sm">
                     <div>
-                      <p className="font-bold">{item.name}</p>
-                      <p className="text-[10px] text-gray-500">{item.size}/{item.color}</p>
+                      <p className="font-bold text-brand-navy">{item.name}</p>
+                      <p className="text-xs text-gray-500">{item.size}/{item.color}</p>
                     </div>
-                    <input type="number" min="1" max={item.maxStock} className="w-14 border p-1 rounded text-center" value={item.qty === 0 ? "" : item.qty} onChange={(e) => updateCartQty(i, e.target.value)} />
-                    <button onClick={() => removeFromCart(i)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={14}/></button>
+                    <div className="flex items-center gap-1">
+                      <input 
+                        type="number" 
+                        min="1" 
+                        max={item.maxStock} 
+                        className="w-20 border p-2 rounded-lg text-center font-bold text-lg" 
+                        value={item.qty} 
+                        onChange={(e) => updateCartQty(i, e.target.value)} 
+                      />
+                      <button 
+                        onClick={() => confirmCartQty(i)} 
+                        className="bg-green-500 text-white p-2 rounded-lg hover:bg-green-600 transition" 
+                        title="Confirm Quantity"
+                      >
+                        <Check size={20} />
+                      </button>
+                    </div>
+                    <button onClick={() => removeFromCart(i)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg"><Trash2 size={20}/></button>
                   </div>
                 ))}
               </div>
@@ -350,35 +366,23 @@ export default function WarehousePage() {
         </div>
       )}
 
-      {/* প্রোডাকশন মডাল (নাম সাজেশনসহ) */}
+      {/* প্রোডাকশন মডাল */}
       {showProdModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-brand-navy mb-4">Add New Production</h3>
             <form onSubmit={handleProduction} className="space-y-3">
-              
               <div className="relative" ref={suggestionRef}>
                 <label className="block text-xs font-medium mb-1">Product Name (Type New or Old)</label>
-                <input 
-                  required 
-                  placeholder="e.g. Cotton Tube" 
-                  className="w-full border p-2 rounded-lg text-sm" 
-                  value={prodData.productName} 
-                  onChange={(e) => { setProdData({...prodData, productName: e.target.value}); setShowSuggestions(true); }} 
-                  onFocus={() => setShowSuggestions(true)}
-                />
-                {/* সাজেশন ড্রপডাউন */}
+                <input required placeholder="e.g. Cotton Tube" className="w-full border p-2 rounded-lg text-sm" value={prodData.productName} onChange={(e) => { setProdData({...prodData, productName: e.target.value}); setShowSuggestions(true); }} onFocus={() => setShowSuggestions(true)} />
                 {showSuggestions && prodData.productName && filteredSuggestions.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-32 overflow-y-auto">
                     {filteredSuggestions.map(name => (
-                      <div key={name} className="p-2 text-sm hover:bg-blue-50 cursor-pointer" onClick={() => { setProdData({...prodData, productName: name}); setShowSuggestions(false); }}>
-                        {name}
-                      </div>
+                      <div key={name} className="p-2 text-sm hover:bg-blue-50 cursor-pointer" onClick={() => { setProdData({...prodData, productName: name}); setShowSuggestions(false); }}>{name}</div>
                     ))}
                   </div>
                 )}
               </div>
-
               <div>
                 <label className="block text-xs font-medium mb-1">Category</label>
                 <select required className="w-full border p-2 rounded-lg text-sm" value={prodData.category} onChange={(e) => setProdData({...prodData, category: e.target.value})}>
@@ -386,15 +390,12 @@ export default function WarehousePage() {
                   {allCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
               </div>
-
               <div className="grid grid-cols-2 gap-2">
                 <div><label className="block text-xs font-medium mb-1">Size</label><input required placeholder="e.g. 5 MM" className="w-full border p-2 rounded-lg text-sm" value={prodData.size} onChange={(e) => setProdData({...prodData, size: e.target.value})} /></div>
                 <div><label className="block text-xs font-medium mb-1">Color</label><input required placeholder="e.g. Black" className="w-full border p-2 rounded-lg text-sm" value={prodData.color} onChange={(e) => setProdData({...prodData, color: e.target.value})} /></div>
               </div>
-
               <div><label className="block text-xs font-medium mb-1">Production Quantity (pcs)</label><input required type="number" min="1" className="w-full border p-2 rounded-lg text-sm font-bold" value={prodData.qty} onChange={(e) => setProdData({...prodData, qty: e.target.value})} /></div>
               <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input type="number" min="0" className="w-full border p-2 rounded-lg text-sm" value={prodData.costPrice} onChange={(e) => setProdData({...prodData, costPrice: e.target.value})} /></div>
-
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowProdModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">Add to Stock</button>
