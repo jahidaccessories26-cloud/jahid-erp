@@ -3,21 +3,21 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, increment, getDoc, setDoc } from "firebase/firestore";
-import { Package, Search, Edit, X, ArrowRightCircle, History, PlusCircle, ShoppingCart, Trash2, Factory } from "lucide-react";
+import { Package, Search, Edit, X, PlusCircle, ShoppingCart, Trash2, Factory, History } from "lucide-react";
 
 export default function WarehousePage() {
   const [products, setProducts] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
   const [transfers, setTransfers] = useState<any[]>([]);
   
-  // কার্ট (একাধিক আইটেম ট্রান্সফারের জন্য)
+  // কার্ট
   const [cart, setCart] = useState<any[]>([]);
   const [selectedShop, setSelectedShop] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
   // প্রোডাকশন (নতুন মাল যোগ) স্টেট
   const [showProdModal, setShowProdModal] = useState(false);
-  const [prodData, setProdData] = useState({ productId: "", varIndex: -1, qty: 0 });
+  const [prodData, setProdData] = useState({ productId: "", size: "", color: "", qty: 0, costPrice: 0 });
 
   // এডিট স্টেট
   const [showEditModal, setShowEditModal] = useState(false);
@@ -49,62 +49,41 @@ export default function WarehousePage() {
     (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  // কার্টে আইটেম যোগ করা
+  // কার্টে যোগ
   const addToCart = (product: any, varIndex: number) => {
     const variation = product.variations[varIndex];
     const existingIndex = cart.findIndex(c => c.productId === product.id && c.varIndex === varIndex);
     
     if (existingIndex >= 0) {
-      // আগে থেকে থাকলে পরিমাণ বাড়বে
       const newCart = [...cart];
       newCart[existingIndex].qty += 1;
       setCart(newCart);
     } else {
-      setCart([...cart, { 
-        productId: product.id, 
-        varIndex, 
-        name: product.name, 
-        size: variation.size, 
-        color: variation.color, 
-        qty: 1, 
-        maxStock: variation.stock 
-      }]);
+      setCart([...cart, { productId: product.id, varIndex, name: product.name, size: variation.size, color: variation.color, qty: 1, maxStock: variation.stock }]);
     }
   };
 
-  // কার্ট আপডেট (পরিমাণ)
   const updateCartQty = (index: number, qty: number) => {
     const newCart = [...cart];
     newCart[index].qty = qty;
     setCart(newCart);
   };
 
-  // কার্ট থেকে বাদ দেওয়া
-  const removeFromCart = (index: number) => {
-    setCart(cart.filter((_, i) => i !== index));
-  };
+  const removeFromCart = (index: number) => setCart(cart.filter((_, i) => i !== index));
 
-  // সব একসাথে ট্রান্সফার করা
+  // ট্রান্সফার
   const handleBulkTransfer = async () => {
-    if (cart.length === 0 || !selectedShop) {
-      setMessage("Error: কার্টে আইটেম নেই বা দোকান সিলেক্ট করা হয়নি!"); return;
-    }
-
+    if (cart.length === 0 || !selectedShop) { setMessage("Error: কার্টে আইটেম নেই বা দোকান সিলেক্ট করা হয়নি!"); return; }
     try {
       for (const item of cart) {
-        if (item.qty > item.maxStock) {
-          setMessage(`Error: ${item.name}-এর স্টক পর্যাপ্ত নয়!`); return;
-        }
-
+        if (item.qty > item.maxStock) { setMessage(`Error: ${item.name}-এর স্টক পর্যাপ্ত নয়!`); return; }
         const product = products.find(p => p.id === item.productId);
         const variation = product.variations[item.varIndex];
 
-        // ১. ওয়্যারহাউস স্টক কমানো
         const updatedVariations = [...product.variations];
         updatedVariations[item.varIndex].stock -= item.qty;
         await updateDoc(doc(db, "products", product.id), { variations: updatedVariations });
 
-        // ২. দোকানের ইনভেন্টরি বাড়ানো
         const shopInvId = `${selectedShop}_${product.id}_${variation.size}_${variation.color}`.replace(/\s+/g, '_');
         const shopInvRef = doc(db, "shop_inventories", shopInvId);
         const shopInvSnap = await getDoc(shopInvRef);
@@ -114,51 +93,58 @@ export default function WarehousePage() {
         } else {
           await setDoc(shopInvRef, {
             shop: selectedShop, productName: product.name, category: product.category,
-            size: variation.size, color: variation.color, stock: item.qty,
-            costPrice: variation.costPrice
+            size: variation.size, color: variation.color, stock: item.qty, costPrice: variation.costPrice
           });
         }
 
-        // ৩. লগ সেভ
         await addDoc(collection(db, "stock_logs"), {
           shop: selectedShop, productName: product.name, size: variation.size, color: variation.color,
           quantity: item.qty, type: "Warehouse Transfer", date: new Date().toISOString(), createdAt: new Date().toISOString()
         });
       }
-
       setMessage(`Success: ${cart.length} টি আইটেম ${selectedShop}-এ পাঠানো হয়েছে!`);
       setCart([]);
-    } catch (error) {
-      console.error(error);
-      setMessage("ট্রান্সফার করতে সমস্যা হয়েছে!");
-    }
+    } catch (error) { setMessage("ট্রান্সফার করতে সমস্যা হয়েছে!"); }
   };
 
-  // প্রোডাকশন এন্ট্রি (নতুন মাল যোগ)
+  // নতুন প্রোডাকশন (মাল যোগ এবং এডিট)
   const handleProduction = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { productId, varIndex, qty } = prodData;
+    const { productId, size, color, qty, costPrice } = prodData;
     const product = products.find(p => p.id === productId);
-    if (!product || varIndex === -1 || qty <= 0) return;
+    
+    if (!product || !size || !color || qty <= 0) {
+      setMessage("Error: সব তথ্য সঠিকভাবে দিন!"); return;
+    }
 
     try {
-      const updatedVariations = [...product.variations];
-      updatedVariations[varIndex].stock += Number(qty);
+      let updatedVariations = [...(product.variations || [])];
+      const existingIndex = updatedVariations.findIndex(v => v.size === size && v.color === color);
+
+      if (existingIndex >= 0) {
+        // সাইজ/কালার আগে থাকলে শুধু স্টক ও দাম আপডেট হবে
+        updatedVariations[existingIndex].stock += Number(qty);
+        if (costPrice > 0) updatedVariations[existingIndex].costPrice = Number(costPrice);
+      } else {
+        // নতুন সাইজ/কালার যোগ হবে
+        updatedVariations.push({ size, color, stock: Number(qty), costPrice: Number(costPrice) || 0 });
+      }
+
       await updateDoc(doc(db, "products", productId), { variations: updatedVariations });
 
       // লগ সেভ
-      const variation = product.variations[varIndex];
       await addDoc(collection(db, "stock_logs"), {
-        shop: "Warehouse", productName: product.name, size: variation.size, color: variation.color,
+        shop: "Warehouse", productName: product.name, size, color,
         quantity: qty, type: "Production Inward", date: new Date().toISOString(), createdAt: new Date().toISOString()
       });
 
-      setMessage(`Success: ${qty} পিস নতুন মাল ওয়্যারহাউসে যোগ হয়েছে!`);
+      setMessage(`Success: ${qty} পিস ${product.name} (${size}/${color}) ওয়্যারহাউসে যোগ হয়েছে!`);
       setShowProdModal(false);
-      setProdData({ productId: "", varIndex: -1, qty: 0 });
+      setProdData({ productId: "", size: "", color: "", qty: 0, costPrice: 0 });
     } catch (error) { setMessage("প্রোডাকশন যোগ করতে সমস্যা হয়েছে!"); }
   };
 
+  // এডিট হ্যান্ডলার
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     const { productId, varIndex, newStock, newPrice } = editData;
@@ -179,7 +165,7 @@ export default function WarehousePage() {
     <div className="max-w-6xl mx-auto pb-24">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold text-brand-navy">Warehouse Stock</h2>
-        <button onClick={() => setShowProdModal(true)} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
+        <button onClick={() => { setProdData({ productId: "", size: "", color: "", qty: 0, costPrice: 0 }); setShowProdModal(true); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
           <Factory size={16}/> Add Production
         </button>
       </div>
@@ -191,7 +177,6 @@ export default function WarehousePage() {
         <input type="text" placeholder="Search product..." className="w-full bg-transparent outline-none text-sm py-1" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
       </div>
 
-      {/* প্রোডাক্ট লিস্ট */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         {filteredProducts.map((product) => (
           <div key={product.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
@@ -226,7 +211,7 @@ export default function WarehousePage() {
         ))}
       </div>
 
-      {/* কার্ট (নিচে ফিক্সড) */}
+      {/* কার্ট */}
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-300 shadow-2xl p-4 z-40 md:static md:shadow-none md:border-none md:p-0 md:mb-6">
           <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center gap-3">
@@ -255,7 +240,6 @@ export default function WarehousePage() {
         </div>
       )}
 
-      {/* ট্রান্সফার হিস্ট্রি */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-4 border-b bg-gray-50 flex items-center gap-2 font-bold text-gray-700 text-sm">
           <History size={18}/> Transfer History
@@ -288,26 +272,33 @@ export default function WarehousePage() {
             <form onSubmit={handleProduction} className="space-y-3">
               <div>
                 <label className="block text-xs font-medium mb-1">Select Product</label>
-                <select required className="w-full border p-2 rounded-lg text-sm" onChange={(e) => setProdData({...prodData, productId: e.target.value, varIndex: -1})} value={prodData.productId}>
+                <select required className="w-full border p-2 rounded-lg text-sm" onChange={(e) => setProdData({...prodData, productId: e.target.value})} value={prodData.productId}>
                   <option value="" disabled>-- Select Product --</option>
                   {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.category})</option>)}
                 </select>
               </div>
-              {prodData.productId && (
+              
+              <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-medium mb-1">Select Size/Color</label>
-                  <select required className="w-full border p-2 rounded-lg text-sm" onChange={(e) => setProdData({...prodData, varIndex: Number(e.target.value)})} value={prodData.varIndex}>
-                    <option value="-1" disabled>-- Select --</option>
-                    {products.find(p => p.id === prodData.productId)?.variations.map((v: any, i: number) => (
-                      <option key={i} value={i}>{v.size} / {v.color}</option>
-                    ))}
-                  </select>
+                  <label className="block text-xs font-medium mb-1">Size</label>
+                  <input required placeholder="e.g. 5 MM" className="w-full border p-2 rounded-lg text-sm" value={prodData.size} onChange={(e) => setProdData({...prodData, size: e.target.value})} />
                 </div>
-              )}
+                <div>
+                  <label className="block text-xs font-medium mb-1">Color</label>
+                  <input required placeholder="e.g. Black" className="w-full border p-2 rounded-lg text-sm" value={prodData.color} onChange={(e) => setProdData({...prodData, color: e.target.value})} />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-medium mb-1">Production Quantity (pcs)</label>
                 <input required type="number" min="1" className="w-full border p-2 rounded-lg text-sm font-bold" value={prodData.qty || ""} onChange={(e) => setProdData({...prodData, qty: Number(e.target.value)})} />
               </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1">Cost Price (৳)</label>
+                <input type="number" min="0" className="w-full border p-2 rounded-lg text-sm" value={prodData.costPrice || ""} onChange={(e) => setProdData({...prodData, costPrice: Number(e.target.value)})} />
+              </div>
+
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowProdModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">Add to Stock</button>
