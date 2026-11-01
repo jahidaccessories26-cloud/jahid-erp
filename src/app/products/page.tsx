@@ -9,7 +9,6 @@ type Variation = {
   color: string;
   stock: number;
   costPrice: number;
-  sellingPrice: number;
 };
 
 export default function ProductsPage() {
@@ -17,14 +16,13 @@ export default function ProductsPage() {
   const [dbCategories, setDbCategories] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   
-  // সার্চ এবং ফিল্টার স্টেট
   const [searchTerm, setSearchTerm] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState(""); 
   const [variations, setVariations] = useState<Variation[]>([
-    { size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }
+    { size: "", color: "", stock: 0, costPrice: 0 }
   ]);
 
   const [editingProduct, setEditingProduct] = useState<any>(null);
@@ -43,7 +41,6 @@ export default function ProductsPage() {
     return () => { unsubProducts(); unsubCategories(); };
   }, []);
 
-  // ডেটাবেসের ক্যাটাগরি এবং প্রোডাক্টের ক্যাটাগরি—দুটো মিলিয়ে ইউনিক লিস্ট তৈরি
   const allCategories = Array.from(new Set([
     ...dbCategories.map(c => c.name),
     ...products.map(p => p.category)
@@ -56,7 +53,7 @@ export default function ProductsPage() {
     return matchesSearch && matchesCategory;
   });
 
-  const addVariation = () => setVariations([...variations, { size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }]);
+  const addVariation = () => setVariations([...variations, { size: "", color: "", stock: 0, costPrice: 0 }]);
   
   const updateVariation = (index: number, field: keyof Variation, value: string | number) => {
     const newVariations = [...variations];
@@ -78,7 +75,7 @@ export default function ProductsPage() {
         await addDoc(collection(db, "products"), { name, category, variations, createdAt: new Date().toISOString() });
         alert("Success: নতুন প্রোডাক্ট সেভ হয়েছে!");
       }
-      setName(""); setVariations([{ size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }]);
+      setName(""); setVariations([{ size: "", color: "", stock: 0, costPrice: 0 }]);
       setShowForm(false); setEditingProduct(null);
     } catch (error) { alert("প্রোডাক্ট সেভ করতে সমস্যা হয়েছে!"); }
   };
@@ -96,14 +93,13 @@ export default function ProductsPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
         <h2 className="text-2xl font-bold text-brand-navy">Product Catalog</h2>
         <button 
-          onClick={() => { setShowForm(!showForm); setEditingProduct(null); setName(""); setVariations([{ size: "", color: "", stock: 0, costPrice: 0, sellingPrice: 0 }]); }}
+          onClick={() => { setShowForm(!showForm); setEditingProduct(null); setName(""); setVariations([{ size: "", color: "", stock: 0, costPrice: 0 }]); }}
           className="bg-brand-navy text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-brand-navy/90 transition flex items-center gap-1 w-full md:w-auto justify-center"
         >
           <PlusCircle size={16} /> {showForm ? "Close Form" : "Add New Product"}
         </button>
       </div>
 
-      {/* সার্চ ও ক্যাটাগরি ফিল্টার বার */}
       <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-2">
         <div className="flex-1 flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg">
           <Search size={16} className="text-gray-400" />
@@ -153,16 +149,15 @@ export default function ProductsPage() {
           </div>
 
           <div className="mb-3">
-            <h4 className="text-sm font-semibold text-gray-700 mb-2 border-b pb-1">Variations (Size, Color, Stock, Price)</h4>
+            <h4 className="text-sm font-semibold text-gray-700 mb-2 border-b pb-1">Variations (Size, Color, Stock, Cost)</h4>
             
             {variations.map((v, index) => (
-              <div key={index} className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-2 items-end bg-gray-50 p-2 rounded-lg border">
+              <div key={index} className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2 items-end bg-gray-50 p-2 rounded-lg border">
                 <div><label className="text-[10px] font-medium text-gray-500">Size</label><input required placeholder="10 cm" className="w-full border p-1 rounded text-xs" value={v.size} onChange={(e) => updateVariation(index, "size", e.target.value)} /></div>
                 <div><label className="text-[10px] font-medium text-gray-500">Color</label><input required placeholder="Red" className="w-full border p-1 rounded text-xs" value={v.color} onChange={(e) => updateVariation(index, "color", e.target.value)} /></div>
                 <div><label className="text-[10px] font-medium text-gray-500">Stock</label><input required type="number" placeholder="100" className="w-full border p-1 rounded text-xs" value={v.stock || ""} onChange={(e) => updateVariation(index, "stock", Number(e.target.value))} /></div>
-                <div><label className="text-[10px] font-medium text-gray-500">Cost</label><input required type="number" placeholder="50" className="w-full border p-1 rounded text-xs" value={v.costPrice || ""} onChange={(e) => updateVariation(index, "costPrice", Number(e.target.value))} /></div>
                 <div className="flex gap-1 items-end">
-                  <div className="flex-1"><label className="text-[10px] font-medium text-gray-500">Sell</label><input required type="number" placeholder="60" className="w-full border p-1 rounded text-xs" value={v.sellingPrice || ""} onChange={(e) => updateVariation(index, "sellingPrice", Number(e.target.value))} /></div>
+                  <div className="flex-1"><label className="text-[10px] font-medium text-gray-500">Cost</label><input required type="number" placeholder="50" className="w-full border p-1 rounded text-xs" value={v.costPrice || ""} onChange={(e) => updateVariation(index, "costPrice", Number(e.target.value))} /></div>
                   <button type="button" onClick={() => removeVariation(index)} className="text-red-500 hover:bg-red-50 p-1 rounded mb-0.5"><Trash2 size={14} /></button>
                 </div>
               </div>
@@ -180,7 +175,7 @@ export default function ProductsPage() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {filteredProducts.length === 0 && <p className="text-gray-500 text-center col-span-2 py-4">কোনো প্রোডাক্ট পাওয়া যায়নি।</p>}
+        {filteredProducts.length === 0 && <p className="text-gray-500 text-center col-span-2 py-4">কোনো প্রোডাক্ট পাওয়া যায়নি।</p>}
         
         {filteredProducts.map((product) => (
           <div key={product.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col relative">
@@ -201,7 +196,7 @@ export default function ProductsPage() {
                 <thead className="text-[10px] text-gray-500 uppercase bg-gray-50">
                   <tr>
                     <th className="px-1 py-1">Size</th><th className="px-1 py-1">Color</th>
-                    <th className="px-1 py-1 text-right">Stock</th><th className="px-1 py-1 text-right">Cost</th><th className="px-1 py-1 text-right">Sell</th>
+                    <th className="px-1 py-1 text-right">Stock</th><th className="px-1 py-1 text-right">Cost</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -211,7 +206,6 @@ export default function ProductsPage() {
                       <td className="px-1 py-1.5">{v.color}</td>
                       <td className="px-1 py-1.5 text-right font-semibold text-brand-navy">{v.stock}</td>
                       <td className="px-1 py-1.5 text-right text-gray-500">৳{v.costPrice}</td>
-                      <td className="px-1 py-1.5 text-right text-green-600 font-medium">৳{v.sellingPrice}</td>
                     </tr>
                   ))}
                 </tbody>
