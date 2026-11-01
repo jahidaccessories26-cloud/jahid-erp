@@ -1,24 +1,44 @@
 // @ts-nocheck
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db } from "../../lib/firebase";
 import { collection, addDoc, onSnapshot, query, orderBy, doc, deleteDoc } from "firebase/firestore";
-import { PlusCircle, Trash2, TrendingUp } from "lucide-react";
+import { PlusCircle, Trash2, TrendingUp, Search, X } from "lucide-react";
 
 export default function ShopStatementPage() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]); // প্রোডাক্ট লিস্ট
+  const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // সার্চ ও ড্রপডাউন স্টেট
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showProductList, setShowProductList] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     shop: "",
-    type: "Sale", // Sale, Expense, Purchase, Party Payment
-    description: "", // Sale হলে এখানে প্রোডাক্টের নাম বসবে
+    type: "Sale",
+    description: "", 
     amount: 0,
     date: new Date().toISOString().split("T")[0]
   });
+
+  // প্রোডাক্ট ভ্যারিয়েশন ফ্ল্যাট করা (সার্চের জন্য)
+  const allVariations = products.flatMap((p: any) =>
+    (p.variations || []).map((v: any) => ({
+      productId: p.id,
+      productName: p.name,
+      size: v.size,
+      color: v.color,
+      display: `${p.name} (${v.size} / ${v.color})`,
+    }))
+  );
+
+  const filteredVariations = allVariations.filter((v) =>
+    v.display.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   useEffect(() => {
     const qShops = query(collection(db, "shops"));
@@ -30,7 +50,6 @@ export default function ShopStatementPage() {
       }
     });
 
-    // প্রোডাক্ট লিস্ট আনা
     const qProducts = query(collection(db, "products"));
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -42,7 +61,20 @@ export default function ShopStatementPage() {
       setLoading(false);
     });
 
-    return () => { unsubShops(); unsubProducts(); unsubTrans(); };
+    // বাইরে ক্লিক করলে ড্রপডাউন বন্ধ হবে
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowProductList(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => { 
+      unsubShops(); 
+      unsubProducts(); 
+      unsubTrans(); 
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
   }, [formData.shop]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -58,6 +90,7 @@ export default function ShopStatementPage() {
         createdAt: new Date().toISOString()
       });
       setFormData({ ...formData, description: "", amount: 0 });
+      setSearchTerm("");
       setShowForm(false);
       alert("Success: লেনদেন সেভ হয়েছে!");
     } catch (error) { alert("সেভ করতে সমস্যা হয়েছে!"); }
@@ -119,30 +152,63 @@ export default function ShopStatementPage() {
             <select className="border p-2 rounded-lg text-sm" value={formData.shop} onChange={(e) => setFormData({...formData, shop: e.target.value})}>
               {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
             </select>
-            <select className="border p-2 rounded-lg text-sm" value={formData.type} onChange={(e) => setFormData({...formData, type: e.target.value})}>
+            <select className="border p-2 rounded-lg text-sm" value={formData.type} onChange={(e) => setFormData({...formData, type: e.target.value, description: ""})}>
               <option value="Sale">Sale</option>
               <option value="Expense">Expense</option>
               <option value="Purchase">Direct Purchase</option>
               <option value="Party Payment">Party Payment</option>
             </select>
 
-            {/* টাইপ Sale হলে প্রোডাক্ট ড্রপডাউন দেখাবে, নাহলে টেক্সট ইনপুট */}
+            {/* Sale হলে সার্চেবল ড্রপডাউন */}
             {formData.type === "Sale" ? (
-              <select 
-                required 
-                className="border p-2 rounded-lg text-sm md:col-span-2" 
-                value={formData.description} 
-                onChange={(e) => setFormData({...formData, description: e.target.value})}
-              >
-                <option value="" disabled>-- Select Product --</option>
-                {products.map((p: any) => (
-                  p.variations.map((v: any, i: number) => (
-                    <option key={`${p.id}-${i}`} value={`${p.name} (${v.size} / ${v.color})`}>
-                      {p.name} ({v.size} / {v.color})
-                    </option>
-                  ))
-                ))}
-              </select>
+              <div className="relative md:col-span-2" ref={dropdownRef}>
+                <div className="relative">
+                  <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search Product..."
+                    className="w-full border p-2 pl-9 rounded-lg text-sm"
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setShowProductList(true);
+                    }}
+                    onFocus={() => setShowProductList(true)}
+                  />
+                  {searchTerm && (
+                    <button 
+                      type="button" 
+                      onClick={() => { setSearchTerm(""); setFormData({...formData, description: ""}); }}
+                      className="absolute right-3 top-2.5 text-gray-400 hover:text-red-500"
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
+
+                {/* ড্রপডাউন লিস্ট */}
+                {showProductList && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    {filteredVariations.length === 0 ? (
+                      <div className="p-3 text-sm text-gray-500 text-center">কোনো প্রোডাক্ট পাওয়া যায়নি।</div>
+                    ) : (
+                      filteredVariations.map((v, index) => (
+                        <div
+                          key={index}
+                          className="p-2 text-sm hover:bg-blue-50 cursor-pointer border-b last:border-0"
+                          onClick={() => {
+                            setFormData({ ...formData, description: v.display });
+                            setSearchTerm(v.display);
+                            setShowProductList(false);
+                          }}
+                        >
+                          {v.display}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             ) : (
               <input required placeholder="Description" className="border p-2 rounded-lg text-sm md:col-span-2" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} />
             )}
