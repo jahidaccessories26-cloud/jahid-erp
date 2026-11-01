@@ -98,7 +98,7 @@ export default function Dashboard() {
           </Link>
         )}
 
-        {/* দোকানের কার্ডসমূহ (লিংক আপডেট করা হয়েছে) */}
+        {/* দোকানের কার্ডসমূহ */}
         {visibleShops.map((shop) => {
           const shopTodaySales = shopStatements
             .filter(s => s.shop === shop.name && s.type === "Sale" && s.date === today)
@@ -109,7 +109,6 @@ export default function Dashboard() {
             .reduce((sum, i) => sum + ((i.stock || 0) * (i.costPrice || 0)), 0);
 
           return (
-            {/* এখানে href-এ ?shop=${shop.name} যোগ করা হয়েছে */}
             <Link key={shop.id} href={`/shop-inventory?shop=${shop.name}`} className="bg-white p-3 md:p-5 rounded-xl shadow-sm border-t-4 border-green-500 hover:shadow-md transition group flex flex-col justify-between h-full">
               <div>
                 <div className="flex justify-between items-start mb-2 md:mb-4">
