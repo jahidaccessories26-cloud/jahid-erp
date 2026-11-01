@@ -229,9 +229,68 @@ export default function SamplesPage() {
         </div>
       )}
 
-      {/* মডালগুলো আগের মতোই থাকবে */}
-      {editingSample && ( /* এডিট মডাল কোড */ )}
-      {updatingSample && ( /* স্ট্যাটাস আপডেট মডাল কোড */ )}
+      {/* এডিট স্যাম্পল মডাল */}
+      {editingSample && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-4 rounded-xl shadow-lg w-full max-w-sm">
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-base font-bold text-brand-navy">Edit Sample</h3>
+              <button onClick={() => setEditingSample(null)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
+            </div>
+            <form onSubmit={handleEditSample} className="text-sm space-y-3">
+              <div><label className="block text-xs font-medium mb-1">Style No</label><input required className="w-full border p-1.5 rounded-lg" value={editSampleData.styleNo} onChange={(e) => setEditSampleData({...editSampleData, styleNo: e.target.value})} /></div>
+              <div><label className="block text-xs font-medium mb-1">Item Name</label><input required className="w-full border p-1.5 rounded-lg" value={editSampleData.itemName} onChange={(e) => setEditSampleData({...editSampleData, itemName: e.target.value})} /></div>
+              <div><label className="block text-xs font-medium mb-1">Buyer Name</label><input required className="w-full border p-1.5 rounded-lg" value={editSampleData.buyerName} onChange={(e) => setEditSampleData({...editSampleData, buyerName: e.target.value})} /></div>
+              <div><label className="block text-xs font-medium mb-1">Quantity</label><input required type="number" className="w-full border p-1.5 rounded-lg" value={editSampleData.quantity} onChange={(e) => setEditSampleData({...editSampleData, quantity: e.target.value})} /></div>
+              <div><label className="block text-xs font-medium mb-1">Description</label><input className="w-full border p-1.5 rounded-lg" value={editSampleData.description} onChange={(e) => setEditSampleData({...editSampleData, description: e.target.value})} /></div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setEditingSample(null)} className="px-3 py-1.5 border rounded-lg text-sm">Cancel</button>
+                <button type="submit" className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* স্ট্যাটাস আপডেট মডাল */}
+      {updatingSample && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-4 rounded-xl shadow-lg w-full max-w-sm">
+            <h3 className="text-base font-bold mb-3 text-brand-navy">Update Journey</h3>
+            <form onSubmit={handleUpdateStatus} className="text-sm space-y-3">
+              <div>
+                <label className="block text-xs font-medium mb-1">Next Step</label>
+                <select className="w-full border p-1.5 rounded-lg text-sm" value={updateData.status} onChange={(e) => setUpdateData({...updateData, status: e.target.value})}>
+                  <option value="Sent to Factory">Sent to Factory</option>
+                  <option value="Received from Factory">Received from Factory</option>
+                  <option value="Submitted to Buyer">Submitted to Buyer</option>
+                  <option value="Approved">Approved</option>
+                  <option value="Rejected">Rejected</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Date & Time</label>
+                <input type="datetime-local" className="w-full border p-1.5 rounded-lg text-sm" value={updateData.date} onChange={(e) => setUpdateData({...updateData, date: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Party (Factory/Buyer)</label>
+                <input placeholder="e.g. ABC Garments" className="w-full border p-1.5 rounded-lg text-sm" value={updateData.party} onChange={(e) => setUpdateData({...updateData, party: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Handled By (Staff)</label>
+                <select className="w-full border p-1.5 rounded-lg text-sm" value={updateData.staffName} onChange={(e) => setUpdateData({...updateData, staffName: e.target.value})}>
+                  <option value="" disabled>-- Select Staff --</option>
+                  {staffList.map((staff) => <option key={staff.id} value={staff.email}>{staff.email}</option>)}
+                </select>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setUpdatingSample(null)} className="px-3 py-1.5 border rounded-lg text-sm">Cancel</button>
+                <button type="submit" className="px-3 py-1.5 bg-brand-navy text-white rounded-lg text-sm">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
