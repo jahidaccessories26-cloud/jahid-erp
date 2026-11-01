@@ -102,7 +102,7 @@ export default function SamplesPage() {
   };
 
   const handleCopyLink = (sampleId: string) => {
-    const url = `${window.location.origin}/track/${sampleId}`;
+    const url = `${window.location.origin}/track?id=${sampleId}`;
     navigator.clipboard.writeText(url);
     alert("Tracking Link copied! Send this link to the buyer.");
   };
