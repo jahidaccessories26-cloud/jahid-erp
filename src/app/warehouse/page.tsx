@@ -1,34 +1,35 @@
 // @ts-nocheck
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db, auth } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, increment, getDoc, setDoc } from "firebase/firestore";
-import { Package, Search, Edit, X, PlusCircle, ShoppingCart, Trash2, Factory, History, User } from "lucide-react";
+import { Package, Search, Edit, X, PlusCircle, ShoppingCart, Trash2, Factory, History, User, Filter, Calendar } from "lucide-react";
 
 export default function WarehousePage() {
   const [products, setProducts] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
   const [transfers, setTransfers] = useState<any[]>([]);
-  const [dbCategories, setDbCategories] = useState<any[]>([]); // ক্যাটাগরি লিস্ট
+  const [dbCategories, setDbCategories] = useState<any[]>([]);
   
   // কার্ট
   const [cart, setCart] = useState<any[]>([]);
   const [selectedShop, setSelectedShop] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
+  // হিস্ট্রি ফিল্টার
+  const [historyShopFilter, setHistoryShopFilter] = useState("All");
+  const [historyDateFilter, setHistoryDateFilter] = useState("");
+
   // ইউজার ডেটা
   const [currentUserName, setCurrentUserName] = useState("Admin");
 
-  // প্রোডাকশন স্টেট (নতুন প্রোডাক্ট যোগের জন্য category ও name যুক্ত হলো)
+  // প্রোডাকশন স্টেট
   const [showProdModal, setShowProdModal] = useState(false);
-  const [prodData, setProdData] = useState({ 
-    productName: "", 
-    category: "", 
-    size: "", 
-    color: "", 
-    qty: 0, 
-    costPrice: 0 
-  });
+  const [prodData, setProdData] = useState({ productName: "", category: "", size: "", color: "", qty: "", costPrice: "" });
+  
+  // প্রোডাক্ট নামের সাজেশন (অটো-কমপ্লিট)
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const suggestionRef = useRef<HTMLDivElement>(null);
 
   // এডিট স্টেট
   const [showEditModal, setShowEditModal] = useState(false);
@@ -44,9 +45,7 @@ export default function WarehousePage() {
         } else {
           const docSnap = await getDoc(doc(db, "users", user.email));
           if (docSnap.exists()) {
-            const role = docSnap.data().role;
-            const name = docSnap.data().name || user.email;
-            setCurrentUserName(`${name} (${role})`);
+            setCurrentUserName(`${docSnap.data().name || user.email} (${docSnap.data().role})`);
           }
         }
       }
@@ -71,7 +70,18 @@ export default function WarehousePage() {
       setTransfers(allLogs.filter((log: any) => log.type === "Warehouse Transfer" || log.type === "Production Inward"));
     });
 
-    return () => { unsubAuth(); unsubProducts(); unsubCategories(); unsubShops(); unsubTransfers(); };
+    // বাইরে ক্লিক করলে সাজেশন বন্ধ হবে
+    const handleClickOutside = (event: MouseEvent) => {
+      if (suggestionRef.current && !suggestionRef.current.contains(event.target as Node)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+
+    return () => { 
+      unsubAuth(); unsubProducts(); unsubCategories(); unsubShops(); unsubTransfers(); 
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
   }, [selectedShop]);
 
   const filteredProducts = products.filter(p => 
@@ -79,8 +89,20 @@ export default function WarehousePage() {
     (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  // সব ক্যাটাগরির লিস্ট
   const allCategories = Array.from(new Set([...dbCategories.map(c => c.name), ...products.map(p => p.category)])).filter(Boolean);
+  
+  // সাজেশনের জন্য ইউনিক প্রোডাক্ট নাম
+  const uniqueProductNames = Array.from(new Set(products.map(p => p.name)));
+  const filteredSuggestions = uniqueProductNames.filter(name => 
+    name.toLowerCase().includes(prodData.productName.toLowerCase())
+  );
+
+  // হিস্ট্রি ফিল্টার লজিক
+  const filteredHistory = transfers.filter(t => {
+    const matchShop = historyShopFilter === "All" || t.shop === historyShopFilter;
+    const matchDate = historyDateFilter ? t.date.startsWith(historyDateFilter) : true;
+    return matchShop && matchDate;
+  });
 
   const addToCart = (product: any, varIndex: number) => {
     const variation = product.variations[varIndex];
@@ -94,7 +116,7 @@ export default function WarehousePage() {
     }
   };
 
-  const updateCartQty = (index: number, qty: number) => {
+  const updateCartQty = (index: number, qty: any) => {
     const newCart = [...cart];
     newCart[index].qty = qty;
     setCart(newCart);
@@ -104,14 +126,20 @@ export default function WarehousePage() {
 
   const handleBulkTransfer = async () => {
     if (cart.length === 0 || !selectedShop) { setMessage("Error: কার্টে আইটেম নেই বা দোকান সিলেক্ট করা হয়নি!"); return; }
+    
+    // চেক করা সব আইটেমের পরিমাণ ১ বা তার বেশি কিনা
+    const invalidItem = cart.find(item => Number(item.qty) <= 0);
+    if (invalidItem) { setMessage(`Error: ${invalidItem.name}-এর পরিমাণ সঠিকভাবে দিন!`); return; }
+
     try {
       for (const item of cart) {
-        if (item.qty > item.maxStock) { setMessage(`Error: ${item.name}-এর স্টক পর্যাপ্ত নয়!`); return; }
+        if (Number(item.qty) > item.maxStock) { setMessage(`Error: ${item.name}-এর স্টক পর্যাপ্ত নয়!`); return; }
         const product = products.find(p => p.id === item.productId);
         const variation = product.variations[item.varIndex];
+        const qty = Number(item.qty);
 
         const updatedVariations = [...product.variations];
-        updatedVariations[item.varIndex].stock -= item.qty;
+        updatedVariations[item.varIndex].stock -= qty;
         await updateDoc(doc(db, "products", product.id), { variations: updatedVariations });
 
         const shopInvId = `${selectedShop}_${product.id}_${variation.size}_${variation.color}`.replace(/\s+/g, '_');
@@ -119,17 +147,17 @@ export default function WarehousePage() {
         const shopInvSnap = await getDoc(shopInvRef);
 
         if (shopInvSnap.exists()) {
-          await updateDoc(shopInvRef, { stock: increment(item.qty) });
+          await updateDoc(shopInvRef, { stock: increment(qty) });
         } else {
           await setDoc(shopInvRef, {
             shop: selectedShop, productName: product.name, category: product.category,
-            size: variation.size, color: variation.color, stock: item.qty, costPrice: variation.costPrice
+            size: variation.size, color: variation.color, stock: qty, costPrice: variation.costPrice
           });
         }
 
         await addDoc(collection(db, "stock_logs"), {
           shop: selectedShop, productName: product.name, size: variation.size, color: variation.color,
-          quantity: item.qty, type: "Warehouse Transfer", transferredBy: currentUserName,
+          quantity: qty, type: "Warehouse Transfer", transferredBy: currentUserName,
           date: new Date().toISOString(), createdAt: new Date().toISOString()
         });
       }
@@ -138,51 +166,47 @@ export default function WarehousePage() {
     } catch (error) { setMessage("ট্রান্সফার করতে সমস্যা হয়েছে!"); }
   };
 
-  // নতুন প্রোডাকশন (এখানে নতুন প্রোডাক্টও তৈরি হবে)
   const handleProduction = async (e: React.FormEvent) => {
     e.preventDefault();
     const { productName, category, size, color, qty, costPrice } = prodData;
+    const numQty = Number(qty);
+    const numCost = Number(costPrice) || 0;
     
-    if (!productName || !category || !size || !color || qty <= 0) { 
+    if (!productName || !category || !size || !color || numQty <= 0) { 
       setMessage("Error: সব তথ্য সঠিকভাবে দিন!"); return; 
     }
 
     try {
-      // ১. চেক করা প্রোডাক্ট আগে থেকে আছে কিনা
       let existingProduct = products.find(p => p.name.toLowerCase() === productName.toLowerCase() && p.category === category);
 
       if (existingProduct) {
-        // প্রোডাক্ট থাকলে শুধু ভ্যারিয়েশন আপডেট
         let updatedVariations = [...(existingProduct.variations || [])];
         const existingIndex = updatedVariations.findIndex(v => v.size === size && v.color === color);
 
         if (existingIndex >= 0) {
-          updatedVariations[existingIndex].stock += Number(qty);
-          if (costPrice > 0) updatedVariations[existingIndex].costPrice = Number(costPrice);
+          updatedVariations[existingIndex].stock += numQty;
+          if (numCost > 0) updatedVariations[existingIndex].costPrice = numCost;
         } else {
-          updatedVariations.push({ size, color, stock: Number(qty), costPrice: Number(costPrice) || 0 });
+          updatedVariations.push({ size, color, stock: numQty, costPrice: numCost });
         }
         await updateDoc(doc(db, "products", existingProduct.id), { variations: updatedVariations });
       } else {
-        // নতুন প্রোডাক্ট তৈরি হবে
-        const newProductRef = await addDoc(collection(db, "products"), {
-          name: productName,
-          category: category,
-          variations: [{ size, color, stock: Number(qty), costPrice: Number(costPrice) || 0 }],
+        await addDoc(collection(db, "products"), {
+          name: productName, category: category,
+          variations: [{ size, color, stock: numQty, costPrice: numCost }],
           createdAt: new Date().toISOString()
         });
-        existingProduct = { id: newProductRef.id, name: productName, category, variations: [] };
       }
 
       await addDoc(collection(db, "stock_logs"), {
-        shop: "Warehouse", productName: productName, size, color,
-        quantity: qty, type: "Production Inward", transferredBy: currentUserName,
+        shop: "Warehouse", productName, size, color,
+        quantity: numQty, type: "Production Inward", transferredBy: currentUserName,
         date: new Date().toISOString(), createdAt: new Date().toISOString()
       });
 
-      setMessage(`Success: ${qty} পিস ${productName} (${size}/${color}) ওয়্যারহাউসে যোগ হয়েছে!`);
+      setMessage(`Success: ${numQty} পিস ${productName} (${size}/${color}) ওয়্যারহাউসে যোগ হয়েছে!`);
       setShowProdModal(false);
-      setProdData({ productName: "", category: "", size: "", color: "", qty: 0, costPrice: 0 });
+      setProdData({ productName: "", category: "", size: "", color: "", qty: "", costPrice: "" });
     } catch (error) { setMessage("প্রোডাকশন যোগ করতে সমস্যা হয়েছে!"); }
   };
 
@@ -206,32 +230,39 @@ export default function WarehousePage() {
     <div className="max-w-6xl mx-auto pb-24">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold text-brand-navy">Warehouse Stock</h2>
-        <button onClick={() => { setProdData({ productName: "", category: "", size: "", color: "", qty: 0, costPrice: 0 }); setShowProdModal(true); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
+        <button onClick={() => { setProdData({ productName: "", category: "", size: "", color: "", qty: "", costPrice: "" }); setShowProdModal(true); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
           <Factory size={16}/> Add Production
         </button>
       </div>
 
       {message && <div className={`p-3 mb-4 rounded-lg font-medium text-sm ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>{message}</div>}
 
-      {/* ট্রান্সফার হিস্ট্রি (উপরে, লেখা বড় করা হয়েছে) */}
+      {/* ট্রান্সফার হিস্ট্রি (ফিল্টারসহ) */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
-        <div className="p-3 border-b bg-gray-50 flex items-center justify-between">
+        <div className="p-3 border-b bg-gray-50 flex flex-col md:flex-row justify-between md:items-center gap-2">
           <h3 className="font-bold text-gray-700 text-sm flex items-center gap-2"><History size={16}/> Recent Activities</h3>
+          <div className="flex gap-2">
+            <div className="flex items-center gap-1 bg-white border rounded-lg px-2 py-1">
+              <Filter size={14} className="text-gray-400" />
+              <select className="text-xs font-medium outline-none bg-transparent" value={historyShopFilter} onChange={(e) => setHistoryShopFilter(e.target.value)}>
+                <option value="All">All Shops</option>
+                {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+            </div>
+            <div className="flex items-center gap-1 bg-white border rounded-lg px-2 py-1">
+              <Calendar size={14} className="text-gray-400" />
+              <input type="date" className="text-xs outline-none bg-transparent" value={historyDateFilter} onChange={(e) => setHistoryDateFilter(e.target.value)} />
+            </div>
+          </div>
         </div>
         <div className="overflow-x-auto max-h-60">
           <table className="w-full text-left text-sm">
             <thead className="bg-gray-100 text-gray-600">
-              <tr>
-                <th className="px-3 py-2 font-semibold">Date</th>
-                <th className="px-3 py-2 font-semibold">Product</th>
-                <th className="px-3 py-2 font-semibold text-center">Qty</th>
-                <th className="px-3 py-2 font-semibold">Destination</th>
-                <th className="px-3 py-2 font-semibold text-right">By</th>
-              </tr>
+              <tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Product</th><th className="px-3 py-2 text-center">Qty</th><th className="px-3 py-2">Destination</th><th className="px-3 py-2 text-right">By</th></tr>
             </thead>
             <tbody>
-              {transfers.length === 0 && <tr><td colSpan={5} className="text-center py-4 text-gray-500">কোনো লেনদেন নেই।</td></tr>}
-              {transfers.map(log => (
+              {filteredHistory.length === 0 && <tr><td colSpan={5} className="text-center py-4 text-gray-500">কোনো লেনদেন নেই।</td></tr>}
+              {filteredHistory.map(log => (
                 <tr key={log.id} className="border-b last:border-0 hover:bg-gray-50">
                   <td className="px-3 py-2 text-gray-500">
                     <div className="font-medium text-gray-800">{new Date(log.createdAt).toLocaleDateString()}</div>
@@ -241,13 +272,9 @@ export default function WarehousePage() {
                     <span className="font-bold text-brand-navy">{log.productName}</span><br/>
                     <span className="text-[11px] text-gray-500">{log.size}/{log.color}</span>
                   </td>
-                  <td className="px-3 py-2 text-center font-bold text-green-600">
-                    {log.type === "Warehouse Transfer" ? "-" : "+"}{log.quantity}
-                  </td>
+                  <td className="px-3 py-2 text-center font-bold text-green-600">{log.type === "Warehouse Transfer" ? "-" : "+"}{log.quantity}</td>
                   <td className="px-3 py-2 font-medium text-brand-navy">{log.shop}</td>
-                  <td className="px-3 py-2 text-right text-[11px] text-gray-600 flex items-center justify-end gap-1">
-                    <User size={12}/> {log.transferredBy || "System"}
-                  </td>
+                  <td className="px-3 py-2 text-right text-[11px] text-gray-600 flex items-center justify-end gap-1"><User size={12}/> {log.transferredBy || "System"}</td>
                 </tr>
               ))}
             </tbody>
@@ -294,7 +321,7 @@ export default function WarehousePage() {
         ))}
       </div>
 
-      {/* কার্ট */}
+      {/* কার্ট (০ সমস্যা সমাধান) */}
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-300 shadow-2xl p-4 z-40 md:static md:shadow-none md:border-none md:p-0 md:mb-6">
           <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center gap-3">
@@ -307,7 +334,7 @@ export default function WarehousePage() {
                       <p className="font-bold">{item.name}</p>
                       <p className="text-[10px] text-gray-500">{item.size}/{item.color}</p>
                     </div>
-                    <input type="number" min="1" max={item.maxStock} className="w-14 border p-1 rounded text-center" value={item.qty} onChange={(e) => updateCartQty(i, Number(e.target.value))} />
+                    <input type="number" min="1" max={item.maxStock} className="w-14 border p-1 rounded text-center" value={item.qty === 0 ? "" : item.qty} onChange={(e) => updateCartQty(i, e.target.value)} />
                     <button onClick={() => removeFromCart(i)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={14}/></button>
                   </div>
                 ))}
@@ -323,16 +350,33 @@ export default function WarehousePage() {
         </div>
       )}
 
-      {/* প্রোডাকশন মডাল (নতুন প্রোডাক্ট ও ক্যাটাগরি যোগ) */}
+      {/* প্রোডাকশন মডাল (নাম সাজেশনসহ) */}
       {showProdModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-brand-navy mb-4">Add New Production</h3>
             <form onSubmit={handleProduction} className="space-y-3">
               
-              <div>
+              <div className="relative" ref={suggestionRef}>
                 <label className="block text-xs font-medium mb-1">Product Name (Type New or Old)</label>
-                <input required placeholder="e.g. Cotton Tube" className="w-full border p-2 rounded-lg text-sm" value={prodData.productName} onChange={(e) => setProdData({...prodData, productName: e.target.value})} />
+                <input 
+                  required 
+                  placeholder="e.g. Cotton Tube" 
+                  className="w-full border p-2 rounded-lg text-sm" 
+                  value={prodData.productName} 
+                  onChange={(e) => { setProdData({...prodData, productName: e.target.value}); setShowSuggestions(true); }} 
+                  onFocus={() => setShowSuggestions(true)}
+                />
+                {/* সাজেশন ড্রপডাউন */}
+                {showSuggestions && prodData.productName && filteredSuggestions.length > 0 && (
+                  <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-32 overflow-y-auto">
+                    {filteredSuggestions.map(name => (
+                      <div key={name} className="p-2 text-sm hover:bg-blue-50 cursor-pointer" onClick={() => { setProdData({...prodData, productName: name}); setShowSuggestions(false); }}>
+                        {name}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -344,25 +388,12 @@ export default function WarehousePage() {
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-medium mb-1">Size</label>
-                  <input required placeholder="e.g. 5 MM" className="w-full border p-2 rounded-lg text-sm" value={prodData.size} onChange={(e) => setProdData({...prodData, size: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1">Color</label>
-                  <input required placeholder="e.g. Black" className="w-full border p-2 rounded-lg text-sm" value={prodData.color} onChange={(e) => setProdData({...prodData, color: e.target.value})} />
-                </div>
+                <div><label className="block text-xs font-medium mb-1">Size</label><input required placeholder="e.g. 5 MM" className="w-full border p-2 rounded-lg text-sm" value={prodData.size} onChange={(e) => setProdData({...prodData, size: e.target.value})} /></div>
+                <div><label className="block text-xs font-medium mb-1">Color</label><input required placeholder="e.g. Black" className="w-full border p-2 rounded-lg text-sm" value={prodData.color} onChange={(e) => setProdData({...prodData, color: e.target.value})} /></div>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium mb-1">Production Quantity (pcs)</label>
-                <input required type="number" min="1" className="w-full border p-2 rounded-lg text-sm font-bold" value={prodData.qty || ""} onChange={(e) => setProdData({...prodData, qty: Number(e.target.value)})} />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium mb-1">Cost Price (৳)</label>
-                <input type="number" min="0" className="w-full border p-2 rounded-lg text-sm" value={prodData.costPrice || ""} onChange={(e) => setProdData({...prodData, costPrice: Number(e.target.value)})} />
-              </div>
+              <div><label className="block text-xs font-medium mb-1">Production Quantity (pcs)</label><input required type="number" min="1" className="w-full border p-2 rounded-lg text-sm font-bold" value={prodData.qty} onChange={(e) => setProdData({...prodData, qty: e.target.value})} /></div>
+              <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input type="number" min="0" className="w-full border p-2 rounded-lg text-sm" value={prodData.costPrice} onChange={(e) => setProdData({...prodData, costPrice: e.target.value})} /></div>
 
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowProdModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
@@ -379,14 +410,8 @@ export default function WarehousePage() {
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm">
             <h3 className="text-lg font-bold text-brand-navy mb-4">Edit Warehouse Stock</h3>
             <form onSubmit={handleEdit} className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium mb-1">New Stock</label>
-                <input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newStock} onChange={(e) => setEditData({...editData, newStock: Number(e.target.value)})} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1">Cost Price (৳)</label>
-                <input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newPrice} onChange={(e) => setEditData({...editData, newPrice: Number(e.target.value)})} />
-              </div>
+              <div><label className="block text-xs font-medium mb-1">New Stock</label><input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newStock} onChange={(e) => setEditData({...editData, newStock: Number(e.target.value)})} /></div>
+              <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newPrice} onChange={(e) => setEditData({...editData, newPrice: Number(e.target.value)})} /></div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowEditModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded-lg text-sm">Save</button>
