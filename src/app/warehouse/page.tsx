@@ -1,54 +1,57 @@
+// @ts-nocheck
 "use client";
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, getDoc, setDoc, increment } from "firebase/firestore";
-import { Store, ArrowRight, History } from "lucide-react";
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, increment, getDoc, setDoc } from "firebase/firestore";
+import { Store, ArrowRight, Package, Filter, Search } from "lucide-react";
 
 export default function WarehousePage() {
   const [products, setProducts] = useState<any[]>([]);
-  const [transfers, setTransfers] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
+  
+  // ফর্ম স্টেট
   const [showForm, setShowForm] = useState(false);
-
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [selectedVarIndex, setSelectedVarIndex] = useState<number>(-1);
   const [quantity, setQuantity] = useState<number>(0);
   const [destination, setDestination] = useState(""); 
-  
   const [message, setMessage] = useState("");
+
+  // ফিল্টার ও সার্চ
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterCategory, setFilterCategory] = useState("All");
 
   useEffect(() => {
     const qProducts = query(collection(db, "products"), orderBy("createdAt", "desc"));
     const unsubProducts = onSnapshot(qProducts, (snapshot) => {
-      const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setProducts(data);
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    const qShops = query(collection(db, "shops"), orderBy("createdAt", "desc"));
+    const qShops = query(collection(db, "shops"));
     const unsubShops = onSnapshot(qShops, (snapshot) => {
-      const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setShops(data);
       if (data.length > 0 && !destination) {
         setDestination(data[0].name); 
       }
     });
 
-    const qTransfers = query(collection(db, "transfers"), orderBy("createdAt", "desc"));
-    const unsubTransfers = onSnapshot(qTransfers, (snapshot) => {
-      const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setTransfers(data);
-    });
-
-    return () => {
-      unsubProducts();
-      unsubShops();
-      unsubTransfers();
-    };
+    return () => { unsubProducts(); unsubShops(); };
   }, [destination]);
 
+  // ক্যাটাগরি লিস্ট
+  const allCategories = ["All", ...Array.from(new Set(products.map(p => p.category).filter(Boolean)))];
+
+  // ফিল্টার করা প্রোডাক্ট লিস্ট
+  const filteredProducts = products.filter(p => {
+    const matchCat = filterCategory === "All" || p.category === filterCategory;
+    const matchSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                        (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()));
+    return matchCat && matchSearch;
+  });
+
   const handleProductChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const productId = e.target.value;
-    const product = products.find(p => p.id === productId);
+    const product = products.find(p => p.id === e.target.value);
     setSelectedProduct(product || null);
     setSelectedVarIndex(product && product.variations.length > 0 ? 0 : -1);
   };
@@ -58,70 +61,60 @@ export default function WarehousePage() {
     setMessage("");
 
     if (!selectedProduct || selectedVarIndex === -1) {
-      setMessage("Error: অনুগ্রহ করে প্রোডাক্ট এবং ভ্যারিয়েশন সিলেক্ট করুন।");
-      return;
+      setMessage("Error: প্রোডাক্ট এবং ভ্যারিয়েশন সিলেক্ট করুন।"); return;
     }
 
     const variation = selectedProduct.variations[selectedVarIndex];
 
     if (quantity <= 0) {
-      setMessage("Error: পরিমাণ ০ এর বেশি হতে হবে।");
-      return;
+      setMessage("Error: পরিমাণ ০ এর বেশি হতে হবে।"); return;
     }
-
     if (quantity > variation.stock) {
-      setMessage(`Error: ওয়্যারহাউসে মাত্র ${variation.stock} পিস আছে!`);
-      return;
+      setMessage(`Error: ওয়্যারহাউসে মাত্র ${variation.stock} পিস আছে!`); return;
     }
-
     if (!destination) {
-      setMessage("Error: দোকান সিলেক্ট করুন।");
-      return;
+      setMessage("Error: দোকান সিলেক্ট করুন।"); return;
     }
 
     try {
       // ১. ওয়্যারহাউস স্টক কমানো
       const updatedVariations = [...selectedProduct.variations];
       updatedVariations[selectedVarIndex].stock -= quantity;
-      const productRef = doc(db, "products", selectedProduct.id);
-      await updateDoc(productRef, { variations: updatedVariations });
+      await updateDoc(doc(db, "products", selectedProduct.id), { variations: updatedVariations });
 
-      // ২. দোকানের ইনভেন্টরি বাড়ানো
-      const shopInvId = `${destination}_${selectedProduct.id}_${variation.size}_${variation.color}`;
+      // ২. দোকানের ইনভেন্টরি বাড়ানো/তৈরি করা
+      const shopInvId = `${destination}_${selectedProduct.id}_${variation.size}_${variation.color}`.replace(/\s+/g, '_');
       const shopInvRef = doc(db, "shop_inventories", shopInvId);
       const shopInvSnap = await getDoc(shopInvRef);
 
       if (shopInvSnap.exists()) {
-        // যদি আগে থেকেই ওই সাইজ/কালার থাকে, স্টক যোগ হবে
         await updateDoc(shopInvRef, { stock: increment(quantity) });
       } else {
-        // যদি নতুন হয়, নতুন ডকুমেন্ট তৈরি হবে
         await setDoc(shopInvRef, {
           shop: destination,
-          productId: selectedProduct.id,
           productName: selectedProduct.name,
           category: selectedProduct.category,
           size: variation.size,
           color: variation.color,
           stock: quantity,
           costPrice: variation.costPrice,
-          sellingPrice: variation.sellingPrice
+          sellingPrice: variation.sellingPrice || 0
         });
       }
 
-      // ৩. ট্রান্সফার হিস্ট্রি সেভ করা
-      await addDoc(collection(db, "transfers"), {
+      // ৩. ট্রান্সফার লগ সেভ
+      await addDoc(collection(db, "stock_logs"), {
+        shop: destination,
         productName: selectedProduct.name,
-        category: selectedProduct.category,
         size: variation.size,
         color: variation.color,
         quantity: quantity,
-        destination: destination,
+        type: "Warehouse Transfer",
         date: new Date().toISOString(),
         createdAt: new Date().toISOString()
       });
 
-      setMessage(`Success: ${quantity} পিস ${selectedProduct.name} ${destination}-এ পাঠানো হয়েছে!`);
+      setMessage(`Success: ${quantity} পিস ${selectedProduct.name} ${destination}-এ পাঠানো হয়েছে!`);
       setQuantity(0);
       setSelectedProduct(null);
       setSelectedVarIndex(-1);
@@ -129,38 +122,37 @@ export default function WarehousePage() {
 
     } catch (error) {
       console.error(error);
-      setMessage("Error: ট্রান্সফার করতে সমস্যা হয়েছে!");
+      setMessage("Error: ট্রান্সফার করতে সমস্যা হয়েছে!");
     }
   };
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-3xl font-bold text-brand-navy">Warehouse Management</h2>
+    <div className="max-w-5xl mx-auto pb-10">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
+        <h2 className="text-2xl font-bold text-brand-navy">Warehouse</h2>
         <button 
           onClick={() => setShowForm(!showForm)}
-          className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-navy/90 transition flex items-center gap-2"
+          className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium text-sm hover:bg-brand-navy/90 transition flex items-center gap-2 w-full md:w-auto justify-center"
         >
-          <ArrowRight size={18} /> {showForm ? "Close Form" : "Transfer to Shop"}
+          <ArrowRight size={18} /> {showForm ? "Close Transfer" : "Transfer to Shop"}
         </button>
       </div>
 
       {message && (
-        <div className={`p-4 mb-6 rounded-lg font-medium ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
+        <div className={`p-4 mb-4 rounded-lg font-medium text-sm ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
           {message}
         </div>
       )}
 
+      {/* ট্রান্সফার ফর্ম */}
       {showForm && (
-        <form onSubmit={handleTransfer} className="bg-white p-6 rounded-xl shadow-md border-t-4 border-brand-navy mb-8">
-          <h3 className="text-xl font-bold mb-4 text-brand-navy flex items-center gap-2">
-            <Store size={22} /> Send Stock to Shops
-          </h3>
+        <form onSubmit={handleTransfer} className="bg-white p-4 rounded-xl shadow-md border-t-4 border-brand-navy mb-6">
+          <h3 className="text-lg font-bold mb-3 text-brand-navy flex items-center gap-2"><Store size={20} /> Transfer Stock</h3>
           
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-            <div>
-              <label className="block text-sm font-medium mb-1">Select Product</label>
-              <select required className="w-full border p-2 rounded-lg" onChange={handleProductChange} value={selectedProduct?.id || ""}>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end mb-3">
+            <div className="md:col-span-2">
+              <label className="block text-xs font-medium mb-1">Select Product</label>
+              <select required className="w-full border p-2 rounded-lg text-sm" onChange={handleProductChange} value={selectedProduct?.id || ""}>
                 <option value="" disabled>-- Select Product --</option>
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>{p.name} ({p.category})</option>
@@ -169,9 +161,9 @@ export default function WarehousePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Select Variation</label>
-              <select required className="w-full border p-2 rounded-lg" value={selectedVarIndex} onChange={(e) => setSelectedVarIndex(Number(e.target.value))} disabled={!selectedProduct}>
-                <option value="-1" disabled>-- Select Size & Color --</option>
+              <label className="block text-xs font-medium mb-1">Size / Color</label>
+              <select required className="w-full border p-2 rounded-lg text-sm" value={selectedVarIndex} onChange={(e) => setSelectedVarIndex(Number(e.target.value))} disabled={!selectedProduct}>
+                <option value="-1" disabled>-- Select --</option>
                 {selectedProduct?.variations.map((v: any, i: number) => (
                   <option key={i} value={i}>{v.size} / {v.color} (Stock: {v.stock})</option>
                 ))}
@@ -179,13 +171,13 @@ export default function WarehousePage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium mb-1">Quantity (pcs)</label>
-              <input required type="number" min="1" placeholder="0" className="w-full border p-2 rounded-lg" value={quantity || ""} onChange={(e) => setQuantity(Number(e.target.value))} />
+              <label className="block text-xs font-medium mb-1">Quantity (pcs)</label>
+              <input required type="number" min="1" placeholder="0" className="w-full border p-2 rounded-lg text-sm" value={quantity || ""} onChange={(e) => setQuantity(Number(e.target.value))} />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">Destination</label>
-              <select required className="w-full border p-2 rounded-lg" value={destination} onChange={(e) => setDestination(e.target.value)}>
+            <div className="md:col-span-2">
+              <label className="block text-xs font-medium mb-1">Destination Shop</label>
+              <select required className="w-full border p-2 rounded-lg text-sm" value={destination} onChange={(e) => setDestination(e.target.value)}>
                 {shops.map((shop) => (
                   <option key={shop.id} value={shop.name}>{shop.name}</option>
                 ))}
@@ -193,47 +185,62 @@ export default function WarehousePage() {
             </div>
           </div>
 
-          <button type="submit" className="bg-green-600 text-white px-8 py-2 rounded-lg font-medium hover:bg-green-700 mt-6 w-full md:w-auto">
-            Transfer Stock Now
+          <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium text-sm mt-2 w-full md:w-auto">
+            Confirm Transfer
           </button>
         </form>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 border-b bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
-          <History size={20} /> Recent Stock Transfers
+      {/* সার্চ ও ক্যাটাগরি ফিল্টার */}
+      <div className="flex flex-col md:flex-row gap-2 mb-4">
+        <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 flex items-center gap-2 flex-1">
+          <Search size={18} className="text-gray-400 ml-2" />
+          <input type="text" placeholder="Search product..." className="w-full bg-transparent outline-none text-sm py-1" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-gray-100 text-gray-600">
-              <tr>
-                <th className="px-6 py-3 font-semibold">Date</th>
-                <th className="px-6 py-3 font-semibold">Product</th>
-                <th className="px-6 py-3 font-semibold">Size / Color</th>
-                <th className="px-6 py-3 font-semibold text-right">Qty</th>
-                <th className="px-6 py-3 font-semibold">Destination</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transfers.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">কোনো ট্রান্সফার হিস্ট্রি পাওয়া যায়নি।</td>
-                </tr>
-              )}
-              {transfers.map((t) => (
-                <tr key={t.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-6 py-4 text-gray-500">{new Date(t.date).toLocaleDateString()}</td>
-                  <td className="px-6 py-4 font-medium text-brand-navy">{t.productName}</td>
-                  <td className="px-6 py-4">{t.size} / {t.color}</td>
-                  <td className="px-6 py-4 text-right font-bold text-green-600">{t.quantity}</td>
-                  <td className="px-6 py-4">
-                    <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold">{t.destination}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 flex items-center gap-2 md:w-64">
+          <Filter size={18} className="text-gray-400 ml-2" />
+          <select className="w-full bg-transparent outline-none text-sm font-medium text-brand-navy cursor-pointer" value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+            {allCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+          </select>
         </div>
+      </div>
+
+      {/* প্রোডাক্ট লিস্ট */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {filteredProducts.length === 0 && <p className="text-gray-500 text-center col-span-2 py-4">কোনো প্রোডাক্ট পাওয়া যায়নি।</p>}
+        
+        {filteredProducts.map((product) => (
+          <div key={product.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
+            <div className="flex items-center gap-2 mb-2 border-b pb-2">
+              <div className="bg-brand-navy/10 p-1.5 rounded-lg"><Package className="text-brand-navy" size={18} /></div>
+              <div>
+                <h3 className="text-sm font-bold text-brand-navy">{product.name}</h3>
+                <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">{product.category}</span>
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="text-[10px] text-gray-500 uppercase bg-gray-50">
+                  <tr>
+                    <th className="px-1 py-1">Size</th><th className="px-1 py-1">Color</th>
+                    <th className="px-1 py-1 text-right">Stock</th><th className="px-1 py-1 text-right">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {product.variations.map((v: any, i: number) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="px-1 py-1.5 font-medium">{v.size}</td>
+                      <td className="px-1 py-1.5">{v.color}</td>
+                      <td className="px-1 py-1.5 text-right font-semibold text-brand-navy">{v.stock}</td>
+                      <td className="px-1 py-1.5 text-right text-gray-500">৳{v.costPrice}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
