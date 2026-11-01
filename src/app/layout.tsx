@@ -2,7 +2,7 @@
 import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
-import { LayoutDashboard, Package, LogOut, UserPlus, Box, FolderPlus, Store, Building2, ClipboardList, ShoppingCart, Menu, X, ShoppingBag, History } from "lucide-react";
+import { LayoutDashboard, Package, LogOut, UserPlus, Box, FolderPlus, Store, Building2, ClipboardList, ShoppingCart, Menu, X, ShoppingBag, History, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { auth, db } from "../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -20,11 +20,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   const pathname = usePathname();
 
   useEffect(() => {
-    // Service Worker রেজিস্টার (PWA-র জন্য)
     if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-      navigator.serviceWorker.register('/sw.js').catch((err) => {
-        console.log('SW registration failed: ', err);
-      });
+      navigator.serviceWorker.register('/sw.js').catch((err) => { console.log('SW registration failed: ', err); });
     }
 
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -49,7 +46,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       
       setLoading(false);
       
-      // ✅ এখানে চেক করা হয়েছে: যদি পেজটি '/track' না হয় এবং ইউজার লগইন না থাকে, তবেই লগইন পেজে পাঠাবে।
       if (!currentUser && pathname !== "/login" && !pathname.startsWith("/track")) {
         router.push("/login");
       }
@@ -69,6 +65,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     { name: "Sample Tracking", href: "/samples", icon: <Package size={18} />, roles: ["admin", "manager", "assistant_manager", "merchandiser", "quality_inspector"] },
     { name: "Categories", href: "/categories", icon: <FolderPlus size={18} />, roles: ["admin", "manager"] },
     { name: "Products", href: "/products", icon: <Box size={18} />, roles: ["admin", "manager"] },
+    { name: "Bulk Upload", href: "/bulk-upload", icon: <Upload size={18} />, roles: ["admin"] }, // নতুন মেনু
     { name: "Warehouse", href: "/warehouse", icon: <Store size={18} />, roles: ["admin", "warehouse_manager"] },
     { name: "Shops", href: "/shops", icon: <Building2 size={18} />, roles: ["admin"] },
     { name: "Shop Inventory", href: "/shop-inventory", icon: <ClipboardList size={18} />, roles: ["admin", "manager", "assistant_manager"] },
@@ -89,7 +86,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         {loading ? (
           <div className="flex items-center justify-center h-screen font-bold text-brand-navy text-xl">Loading...</div>
         ) : 
-        // ✅ বায়ার লিংকে ঢুকলে সাইডবার বা লগইন চেক ছাড়া সরাসরি পেজ দেখাবে
         pathname === "/login" || pathname.startsWith("/track") ? (
           <>{children}</>
         ) : (
