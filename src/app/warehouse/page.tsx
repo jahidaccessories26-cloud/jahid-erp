@@ -9,6 +9,7 @@ export default function WarehousePage() {
   const [products, setProducts] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
   const [transfers, setTransfers] = useState<any[]>([]);
+  const [dbCategories, setDbCategories] = useState<any[]>([]); // ক্যাটাগরি লিস্ট
   
   // কার্ট
   const [cart, setCart] = useState<any[]>([]);
@@ -18,9 +19,16 @@ export default function WarehousePage() {
   // ইউজার ডেটা
   const [currentUserName, setCurrentUserName] = useState("Admin");
 
-  // প্রোডাকশন স্টেট
+  // প্রোডাকশন স্টেট (নতুন প্রোডাক্ট যোগের জন্য category ও name যুক্ত হলো)
   const [showProdModal, setShowProdModal] = useState(false);
-  const [prodData, setProdData] = useState({ productId: "", size: "", color: "", qty: 0, costPrice: 0 });
+  const [prodData, setProdData] = useState({ 
+    productName: "", 
+    category: "", 
+    size: "", 
+    color: "", 
+    qty: 0, 
+    costPrice: 0 
+  });
 
   // এডিট স্টেট
   const [showEditModal, setShowEditModal] = useState(false);
@@ -29,7 +37,6 @@ export default function WarehousePage() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    // ইউজারের নাম বের করা (কে ট্রান্সফার করছে)
     const unsubAuth = auth.onAuthStateChanged(async (user) => {
       if (user && user.email) {
         if (user.email === "admin@jahid.com") {
@@ -49,6 +56,10 @@ export default function WarehousePage() {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
+    const unsubCategories = onSnapshot(query(collection(db, "categories")), (snapshot) => {
+      setDbCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setShops(data);
@@ -57,11 +68,10 @@ export default function WarehousePage() {
 
     const unsubTransfers = onSnapshot(query(collection(db, "stock_logs"), orderBy("createdAt", "desc")), (snapshot) => {
       const allLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // ট্রান্সফার লগ ফিল্টার
       setTransfers(allLogs.filter((log: any) => log.type === "Warehouse Transfer" || log.type === "Production Inward"));
     });
 
-    return () => { unsubAuth(); unsubProducts(); unsubShops(); unsubTransfers(); };
+    return () => { unsubAuth(); unsubProducts(); unsubCategories(); unsubShops(); unsubTransfers(); };
   }, [selectedShop]);
 
   const filteredProducts = products.filter(p => 
@@ -69,7 +79,9 @@ export default function WarehousePage() {
     (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  // কার্ট
+  // সব ক্যাটাগরির লিস্ট
+  const allCategories = Array.from(new Set([...dbCategories.map(c => c.name), ...products.map(p => p.category)])).filter(Boolean);
+
   const addToCart = (product: any, varIndex: number) => {
     const variation = product.variations[varIndex];
     const existingIndex = cart.findIndex(c => c.productId === product.id && c.varIndex === varIndex);
@@ -90,7 +102,6 @@ export default function WarehousePage() {
 
   const removeFromCart = (index: number) => setCart(cart.filter((_, i) => i !== index));
 
-  // ট্রান্সফার (কে ট্রান্সফার করছে তার নামসহ)
   const handleBulkTransfer = async () => {
     if (cart.length === 0 || !selectedShop) { setMessage("Error: কার্টে আইটেম নেই বা দোকান সিলেক্ট করা হয়নি!"); return; }
     try {
@@ -116,7 +127,6 @@ export default function WarehousePage() {
           });
         }
 
-        // লগ সেভ (কার নাম সহ)
         await addDoc(collection(db, "stock_logs"), {
           shop: selectedShop, productName: product.name, size: variation.size, color: variation.color,
           quantity: item.qty, type: "Warehouse Transfer", transferredBy: currentUserName,
@@ -128,36 +138,51 @@ export default function WarehousePage() {
     } catch (error) { setMessage("ট্রান্সফার করতে সমস্যা হয়েছে!"); }
   };
 
-  // নতুন প্রোডাকশন
+  // নতুন প্রোডাকশন (এখানে নতুন প্রোডাক্টও তৈরি হবে)
   const handleProduction = async (e: React.FormEvent) => {
     e.preventDefault();
-    const { productId, size, color, qty, costPrice } = prodData;
-    const product = products.find(p => p.id === productId);
+    const { productName, category, size, color, qty, costPrice } = prodData;
     
-    if (!product || !size || !color || qty <= 0) { setMessage("Error: সব তথ্য সঠিকভাবে দিন!"); return; }
+    if (!productName || !category || !size || !color || qty <= 0) { 
+      setMessage("Error: সব তথ্য সঠিকভাবে দিন!"); return; 
+    }
 
     try {
-      let updatedVariations = [...(product.variations || [])];
-      const existingIndex = updatedVariations.findIndex(v => v.size === size && v.color === color);
+      // ১. চেক করা প্রোডাক্ট আগে থেকে আছে কিনা
+      let existingProduct = products.find(p => p.name.toLowerCase() === productName.toLowerCase() && p.category === category);
 
-      if (existingIndex >= 0) {
-        updatedVariations[existingIndex].stock += Number(qty);
-        if (costPrice > 0) updatedVariations[existingIndex].costPrice = Number(costPrice);
+      if (existingProduct) {
+        // প্রোডাক্ট থাকলে শুধু ভ্যারিয়েশন আপডেট
+        let updatedVariations = [...(existingProduct.variations || [])];
+        const existingIndex = updatedVariations.findIndex(v => v.size === size && v.color === color);
+
+        if (existingIndex >= 0) {
+          updatedVariations[existingIndex].stock += Number(qty);
+          if (costPrice > 0) updatedVariations[existingIndex].costPrice = Number(costPrice);
+        } else {
+          updatedVariations.push({ size, color, stock: Number(qty), costPrice: Number(costPrice) || 0 });
+        }
+        await updateDoc(doc(db, "products", existingProduct.id), { variations: updatedVariations });
       } else {
-        updatedVariations.push({ size, color, stock: Number(qty), costPrice: Number(costPrice) || 0 });
+        // নতুন প্রোডাক্ট তৈরি হবে
+        const newProductRef = await addDoc(collection(db, "products"), {
+          name: productName,
+          category: category,
+          variations: [{ size, color, stock: Number(qty), costPrice: Number(costPrice) || 0 }],
+          createdAt: new Date().toISOString()
+        });
+        existingProduct = { id: newProductRef.id, name: productName, category, variations: [] };
       }
 
-      await updateDoc(doc(db, "products", productId), { variations: updatedVariations });
-
       await addDoc(collection(db, "stock_logs"), {
-        shop: "Warehouse", productName: product.name, size, color,
+        shop: "Warehouse", productName: productName, size, color,
         quantity: qty, type: "Production Inward", transferredBy: currentUserName,
         date: new Date().toISOString(), createdAt: new Date().toISOString()
       });
 
-      setMessage(`Success: ${qty} পিস ${product.name} (${size}/${color}) ওয়্যারহাউসে যোগ হয়েছে!`);
+      setMessage(`Success: ${qty} পিস ${productName} (${size}/${color}) ওয়্যারহাউসে যোগ হয়েছে!`);
       setShowProdModal(false);
-      setProdData({ productId: "", size: "", color: "", qty: 0, costPrice: 0 });
+      setProdData({ productName: "", category: "", size: "", color: "", qty: 0, costPrice: 0 });
     } catch (error) { setMessage("প্রোডাকশন যোগ করতে সমস্যা হয়েছে!"); }
   };
 
@@ -181,27 +206,27 @@ export default function WarehousePage() {
     <div className="max-w-6xl mx-auto pb-24">
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold text-brand-navy">Warehouse Stock</h2>
-        <button onClick={() => { setProdData({ productId: "", size: "", color: "", qty: 0, costPrice: 0 }); setShowProdModal(true); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
+        <button onClick={() => { setProdData({ productName: "", category: "", size: "", color: "", qty: 0, costPrice: 0 }); setShowProdModal(true); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
           <Factory size={16}/> Add Production
         </button>
       </div>
 
       {message && <div className={`p-3 mb-4 rounded-lg font-medium text-sm ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>{message}</div>}
 
-      {/* ট্রান্সফার হিস্ট্রি (উপরে) */}
+      {/* ট্রান্সফার হিস্ট্রি (উপরে, লেখা বড় করা হয়েছে) */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
         <div className="p-3 border-b bg-gray-50 flex items-center justify-between">
           <h3 className="font-bold text-gray-700 text-sm flex items-center gap-2"><History size={16}/> Recent Activities</h3>
         </div>
         <div className="overflow-x-auto max-h-60">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left text-sm">
             <thead className="bg-gray-100 text-gray-600">
               <tr>
-                <th className="px-3 py-2">Date</th>
-                <th className="px-3 py-2">Product</th>
-                <th className="px-3 py-2 text-center">Qty</th>
-                <th className="px-3 py-2">Destination</th>
-                <th className="px-3 py-2 text-right">By</th>
+                <th className="px-3 py-2 font-semibold">Date</th>
+                <th className="px-3 py-2 font-semibold">Product</th>
+                <th className="px-3 py-2 font-semibold text-center">Qty</th>
+                <th className="px-3 py-2 font-semibold">Destination</th>
+                <th className="px-3 py-2 font-semibold text-right">By</th>
               </tr>
             </thead>
             <tbody>
@@ -210,18 +235,18 @@ export default function WarehousePage() {
                 <tr key={log.id} className="border-b last:border-0 hover:bg-gray-50">
                   <td className="px-3 py-2 text-gray-500">
                     <div className="font-medium text-gray-800">{new Date(log.createdAt).toLocaleDateString()}</div>
-                    <div className="text-[10px]">{new Date(log.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                    <div className="text-[11px]">{new Date(log.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
                   </td>
                   <td className="px-3 py-2">
                     <span className="font-bold text-brand-navy">{log.productName}</span><br/>
-                    <span className="text-[10px] text-gray-500">{log.size}/{log.color}</span>
+                    <span className="text-[11px] text-gray-500">{log.size}/{log.color}</span>
                   </td>
                   <td className="px-3 py-2 text-center font-bold text-green-600">
                     {log.type === "Warehouse Transfer" ? "-" : "+"}{log.quantity}
                   </td>
                   <td className="px-3 py-2 font-medium text-brand-navy">{log.shop}</td>
-                  <td className="px-3 py-2 text-right text-[10px] text-gray-600 flex items-center justify-end gap-1">
-                    <User size={10}/> {log.transferredBy || "System"}
+                  <td className="px-3 py-2 text-right text-[11px] text-gray-600 flex items-center justify-end gap-1">
+                    <User size={12}/> {log.transferredBy || "System"}
                   </td>
                 </tr>
               ))}
@@ -230,13 +255,11 @@ export default function WarehousePage() {
         </div>
       </div>
 
-      {/* সার্চ */}
       <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
         <Search size={18} className="text-gray-400 ml-2" />
         <input type="text" placeholder="Search product..." className="w-full bg-transparent outline-none text-sm py-1" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
       </div>
 
-      {/* প্রোডাক্ট লিস্ট */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         {filteredProducts.map((product) => (
           <div key={product.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
@@ -300,20 +323,26 @@ export default function WarehousePage() {
         </div>
       )}
 
-      {/* প্রোডাকশন মডাল */}
+      {/* প্রোডাকশন মডাল (নতুন প্রোডাক্ট ও ক্যাটাগরি যোগ) */}
       {showProdModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm">
+          <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold text-brand-navy mb-4">Add New Production</h3>
             <form onSubmit={handleProduction} className="space-y-3">
+              
               <div>
-                <label className="block text-xs font-medium mb-1">Select Product</label>
-                <select required className="w-full border p-2 rounded-lg text-sm" onChange={(e) => setProdData({...prodData, productId: e.target.value})} value={prodData.productId}>
-                  <option value="" disabled>-- Select Product --</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name} ({p.category})</option>)}
+                <label className="block text-xs font-medium mb-1">Product Name (Type New or Old)</label>
+                <input required placeholder="e.g. Cotton Tube" className="w-full border p-2 rounded-lg text-sm" value={prodData.productName} onChange={(e) => setProdData({...prodData, productName: e.target.value})} />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium mb-1">Category</label>
+                <select required className="w-full border p-2 rounded-lg text-sm" value={prodData.category} onChange={(e) => setProdData({...prodData, category: e.target.value})}>
+                  <option value="" disabled>-- Select Category --</option>
+                  {allCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-medium mb-1">Size</label>
