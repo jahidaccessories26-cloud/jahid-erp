@@ -1,9 +1,9 @@
 // @ts-nocheck
 "use client";
 import { useState, useEffect } from "react";
-import { db } from "../../lib/firebase";
+import { db, auth } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, increment, getDoc, setDoc } from "firebase/firestore";
-import { Package, Search, Edit, X, PlusCircle, ShoppingCart, Trash2, Factory, History } from "lucide-react";
+import { Package, Search, Edit, X, PlusCircle, ShoppingCart, Trash2, Factory, History, User } from "lucide-react";
 
 export default function WarehousePage() {
   const [products, setProducts] = useState<any[]>([]);
@@ -15,7 +15,10 @@ export default function WarehousePage() {
   const [selectedShop, setSelectedShop] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
-  // প্রোডাকশন (নতুন মাল যোগ) স্টেট
+  // ইউজার ডেটা
+  const [currentUserName, setCurrentUserName] = useState("Admin");
+
+  // প্রোডাকশন স্টেট
   const [showProdModal, setShowProdModal] = useState(false);
   const [prodData, setProdData] = useState({ productId: "", size: "", color: "", qty: 0, costPrice: 0 });
 
@@ -26,6 +29,22 @@ export default function WarehousePage() {
   const [message, setMessage] = useState("");
 
   useEffect(() => {
+    // ইউজারের নাম বের করা (কে ট্রান্সফার করছে)
+    const unsubAuth = auth.onAuthStateChanged(async (user) => {
+      if (user && user.email) {
+        if (user.email === "admin@jahid.com") {
+          setCurrentUserName("Admin (Jahid)");
+        } else {
+          const docSnap = await getDoc(doc(db, "users", user.email));
+          if (docSnap.exists()) {
+            const role = docSnap.data().role;
+            const name = docSnap.data().name || user.email;
+            setCurrentUserName(`${name} (${role})`);
+          }
+        }
+      }
+    });
+
     const unsubProducts = onSnapshot(query(collection(db, "products"), orderBy("createdAt", "desc")), (snapshot) => {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
@@ -38,10 +57,11 @@ export default function WarehousePage() {
 
     const unsubTransfers = onSnapshot(query(collection(db, "stock_logs"), orderBy("createdAt", "desc")), (snapshot) => {
       const allLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setTransfers(allLogs.filter((log: any) => log.type === "Warehouse Transfer"));
+      // ট্রান্সফার লগ ফিল্টার
+      setTransfers(allLogs.filter((log: any) => log.type === "Warehouse Transfer" || log.type === "Production Inward"));
     });
 
-    return () => { unsubProducts(); unsubShops(); unsubTransfers(); };
+    return () => { unsubAuth(); unsubProducts(); unsubShops(); unsubTransfers(); };
   }, [selectedShop]);
 
   const filteredProducts = products.filter(p => 
@@ -49,11 +69,10 @@ export default function WarehousePage() {
     (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  // কার্টে যোগ
+  // কার্ট
   const addToCart = (product: any, varIndex: number) => {
     const variation = product.variations[varIndex];
     const existingIndex = cart.findIndex(c => c.productId === product.id && c.varIndex === varIndex);
-    
     if (existingIndex >= 0) {
       const newCart = [...cart];
       newCart[existingIndex].qty += 1;
@@ -71,7 +90,7 @@ export default function WarehousePage() {
 
   const removeFromCart = (index: number) => setCart(cart.filter((_, i) => i !== index));
 
-  // ট্রান্সফার
+  // ট্রান্সফার (কে ট্রান্সফার করছে তার নামসহ)
   const handleBulkTransfer = async () => {
     if (cart.length === 0 || !selectedShop) { setMessage("Error: কার্টে আইটেম নেই বা দোকান সিলেক্ট করা হয়নি!"); return; }
     try {
@@ -97,9 +116,11 @@ export default function WarehousePage() {
           });
         }
 
+        // লগ সেভ (কার নাম সহ)
         await addDoc(collection(db, "stock_logs"), {
           shop: selectedShop, productName: product.name, size: variation.size, color: variation.color,
-          quantity: item.qty, type: "Warehouse Transfer", date: new Date().toISOString(), createdAt: new Date().toISOString()
+          quantity: item.qty, type: "Warehouse Transfer", transferredBy: currentUserName,
+          date: new Date().toISOString(), createdAt: new Date().toISOString()
         });
       }
       setMessage(`Success: ${cart.length} টি আইটেম ${selectedShop}-এ পাঠানো হয়েছে!`);
@@ -107,35 +128,31 @@ export default function WarehousePage() {
     } catch (error) { setMessage("ট্রান্সফার করতে সমস্যা হয়েছে!"); }
   };
 
-  // নতুন প্রোডাকশন (মাল যোগ এবং এডিট)
+  // নতুন প্রোডাকশন
   const handleProduction = async (e: React.FormEvent) => {
     e.preventDefault();
     const { productId, size, color, qty, costPrice } = prodData;
     const product = products.find(p => p.id === productId);
     
-    if (!product || !size || !color || qty <= 0) {
-      setMessage("Error: সব তথ্য সঠিকভাবে দিন!"); return;
-    }
+    if (!product || !size || !color || qty <= 0) { setMessage("Error: সব তথ্য সঠিকভাবে দিন!"); return; }
 
     try {
       let updatedVariations = [...(product.variations || [])];
       const existingIndex = updatedVariations.findIndex(v => v.size === size && v.color === color);
 
       if (existingIndex >= 0) {
-        // সাইজ/কালার আগে থাকলে শুধু স্টক ও দাম আপডেট হবে
         updatedVariations[existingIndex].stock += Number(qty);
         if (costPrice > 0) updatedVariations[existingIndex].costPrice = Number(costPrice);
       } else {
-        // নতুন সাইজ/কালার যোগ হবে
         updatedVariations.push({ size, color, stock: Number(qty), costPrice: Number(costPrice) || 0 });
       }
 
       await updateDoc(doc(db, "products", productId), { variations: updatedVariations });
 
-      // লগ সেভ
       await addDoc(collection(db, "stock_logs"), {
         shop: "Warehouse", productName: product.name, size, color,
-        quantity: qty, type: "Production Inward", date: new Date().toISOString(), createdAt: new Date().toISOString()
+        quantity: qty, type: "Production Inward", transferredBy: currentUserName,
+        date: new Date().toISOString(), createdAt: new Date().toISOString()
       });
 
       setMessage(`Success: ${qty} পিস ${product.name} (${size}/${color}) ওয়্যারহাউসে যোগ হয়েছে!`);
@@ -144,7 +161,6 @@ export default function WarehousePage() {
     } catch (error) { setMessage("প্রোডাকশন যোগ করতে সমস্যা হয়েছে!"); }
   };
 
-  // এডিট হ্যান্ডলার
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     const { productId, varIndex, newStock, newPrice } = editData;
@@ -172,11 +188,55 @@ export default function WarehousePage() {
 
       {message && <div className={`p-3 mb-4 rounded-lg font-medium text-sm ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>{message}</div>}
 
+      {/* ট্রান্সফার হিস্ট্রি (উপরে) */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+        <div className="p-3 border-b bg-gray-50 flex items-center justify-between">
+          <h3 className="font-bold text-gray-700 text-sm flex items-center gap-2"><History size={16}/> Recent Activities</h3>
+        </div>
+        <div className="overflow-x-auto max-h-60">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-gray-100 text-gray-600">
+              <tr>
+                <th className="px-3 py-2">Date</th>
+                <th className="px-3 py-2">Product</th>
+                <th className="px-3 py-2 text-center">Qty</th>
+                <th className="px-3 py-2">Destination</th>
+                <th className="px-3 py-2 text-right">By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transfers.length === 0 && <tr><td colSpan={5} className="text-center py-4 text-gray-500">কোনো লেনদেন নেই।</td></tr>}
+              {transfers.map(log => (
+                <tr key={log.id} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-3 py-2 text-gray-500">
+                    <div className="font-medium text-gray-800">{new Date(log.createdAt).toLocaleDateString()}</div>
+                    <div className="text-[10px]">{new Date(log.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span className="font-bold text-brand-navy">{log.productName}</span><br/>
+                    <span className="text-[10px] text-gray-500">{log.size}/{log.color}</span>
+                  </td>
+                  <td className="px-3 py-2 text-center font-bold text-green-600">
+                    {log.type === "Warehouse Transfer" ? "-" : "+"}{log.quantity}
+                  </td>
+                  <td className="px-3 py-2 font-medium text-brand-navy">{log.shop}</td>
+                  <td className="px-3 py-2 text-right text-[10px] text-gray-600 flex items-center justify-end gap-1">
+                    <User size={10}/> {log.transferredBy || "System"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* সার্চ */}
       <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
         <Search size={18} className="text-gray-400 ml-2" />
         <input type="text" placeholder="Search product..." className="w-full bg-transparent outline-none text-sm py-1" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
       </div>
 
+      {/* প্রোডাক্ট লিস্ট */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         {filteredProducts.map((product) => (
           <div key={product.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
@@ -239,30 +299,6 @@ export default function WarehousePage() {
           </div>
         </div>
       )}
-
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 border-b bg-gray-50 flex items-center gap-2 font-bold text-gray-700 text-sm">
-          <History size={18}/> Transfer History
-        </div>
-        <div className="overflow-x-auto max-h-64">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-gray-100 text-gray-600">
-              <tr><th className="px-3 py-2">Date</th><th className="px-3 py-2">Product</th><th className="px-3 py-2 text-center">Qty</th><th className="px-3 py-2 text-right">To</th></tr>
-            </thead>
-            <tbody>
-              {transfers.length === 0 && <tr><td colSpan={4} className="text-center py-4 text-gray-500">কোনো হিস্ট্রি নেই।</td></tr>}
-              {transfers.map(log => (
-                <tr key={log.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-3 py-2 text-gray-500">{new Date(log.createdAt).toLocaleDateString()} <br/><span className="text-[10px]">{new Date(log.createdAt).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></td>
-                  <td className="px-3 py-2"><span className="font-bold text-brand-navy">{log.productName}</span><br/><span className="text-[10px] text-gray-500">{log.size}/{log.color}</span></td>
-                  <td className="px-3 py-2 text-center font-bold text-green-600">{log.quantity}</td>
-                  <td className="px-3 py-2 text-right font-medium text-brand-navy">{log.shop}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
 
       {/* প্রোডাকশন মডাল */}
       {showProdModal && (
