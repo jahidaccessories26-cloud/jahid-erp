@@ -2,7 +2,7 @@
 import { Inter } from "next/font/google";
 import "./globals.css";
 import Link from "next/link";
-import { LayoutDashboard, Package, LogOut, UserPlus, Box, FolderPlus, Store, Building2, ClipboardList, ShoppingCart, Menu, X, ShoppingBag, History, Upload } from "lucide-react";
+import { LayoutDashboard, Package, LogOut, UserPlus, Box, FolderPlus, Store, Building2, ClipboardList, Menu, X, ShoppingBag, History, Upload, TrendingUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import { auth, db } from "../lib/firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
@@ -26,29 +26,18 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
 
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
-      
       if (currentUser && currentUser.email) {
         if (currentUser.email === "admin@jahid.com") {
           setRole("admin");
         } else {
           try {
             const docSnap = await getDoc(doc(db, "users", currentUser.email));
-            if (docSnap.exists()) {
-              setRole(docSnap.data().role || "manager");
-            } else {
-              setRole("manager");
-            }
-          } catch (error) {
-            setRole("manager");
-          }
+            if (docSnap.exists()) setRole(docSnap.data().role || "manager");
+          } catch (error) { setRole("manager"); }
         }
       }
-      
       setLoading(false);
-      
-      if (!currentUser && pathname !== "/login" && !pathname.startsWith("/track")) {
-        router.push("/login");
-      }
+      if (!currentUser && pathname !== "/login" && !pathname.startsWith("/track")) router.push("/login");
     });
     return () => unsubscribe();
   }, [pathname, router]);
@@ -65,13 +54,14 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     { name: "Sample Tracking", href: "/samples", icon: <Package size={18} />, roles: ["admin", "manager", "assistant_manager", "merchandiser", "quality_inspector"] },
     { name: "Categories", href: "/categories", icon: <FolderPlus size={18} />, roles: ["admin", "manager"] },
     { name: "Products", href: "/products", icon: <Box size={18} />, roles: ["admin", "manager"] },
-    { name: "Bulk Upload", href: "/bulk-upload", icon: <Upload size={18} />, roles: ["admin"] }, // নতুন মেনু
+    { name: "Bulk Upload", href: "/bulk-upload", icon: <Upload size={18} />, roles: ["admin"] },
     { name: "Warehouse", href: "/warehouse", icon: <Store size={18} />, roles: ["admin", "warehouse_manager"] },
     { name: "Shops", href: "/shops", icon: <Building2 size={18} />, roles: ["admin"] },
     { name: "Shop Inventory", href: "/shop-inventory", icon: <ClipboardList size={18} />, roles: ["admin", "manager", "assistant_manager"] },
-    { name: "POS (Sales)", href: "/pos", icon: <ShoppingCart size={18} />, roles: ["admin", "manager", "assistant_manager"] },
-    { name: "Sales History", href: "/sales", icon: <History size={18} />, roles: ["admin", "manager", "assistant_manager"] },
+    { name: "Shop Statement", href: "/shop-statement", icon: <TrendingUp size={18} />, roles: ["admin", "manager", "assistant_manager"] }, // নতুন
+    { name: "Sales History", href: "/sales", icon: <History size={18} />, roles: ["admin", "manager"] },
     { name: "Corporate Orders", href: "/orders", icon: <ShoppingBag size={18} />, roles: ["admin", "manager", "assistant_manager", "merchandiser"] },
+    { name: "Buyer Statement", href: "/buyer-statement", icon: <UserPlus size={18} />, roles: ["admin", "manager"] }, // নতুন
     { name: "Stock Logs", href: "/stock-logs", icon: <History size={18} />, roles: ["admin", "warehouse_manager"] },
     { name: "Staff", href: "/staff", icon: <UserPlus size={18} />, roles: ["admin", "manager"] },
   ];
@@ -85,12 +75,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body className={`${inter.className} bg-brand-light text-gray-800`}>
         {loading ? (
           <div className="flex items-center justify-center h-screen font-bold text-brand-navy text-xl">Loading...</div>
-        ) : 
-        pathname === "/login" || pathname.startsWith("/track") ? (
+        ) : pathname === "/login" || pathname.startsWith("/track") ? (
           <>{children}</>
         ) : (
           <div className="flex h-screen overflow-hidden">
-            
             {/* মোবাইল টপ বার */}
             <div className="md:hidden fixed top-0 w-full bg-brand-navy text-white flex justify-between items-center px-4 py-3 z-50 shadow-md">
               <div className="flex items-center gap-2 font-bold text-base">
@@ -104,10 +92,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
 
             {/* ওভারলে */}
             {isMobileMenuOpen && (
-              <div 
-                className="fixed inset-0 bg-black/50 z-30 md:hidden" 
-                onClick={() => setIsMobileMenuOpen(false)}
-              ></div>
+              <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setIsMobileMenuOpen(false)}></div>
             )}
 
             {/* সাইডবার */}
