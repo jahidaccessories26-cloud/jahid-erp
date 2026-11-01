@@ -17,7 +17,6 @@ export default function Dashboard() {
   const [shopInventories, setShopInventories] = useState<any[]>([]);
   const [shopStatements, setShopStatements] = useState<any[]>([]);
 
-  // ইউজার চেক
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(async (user) => {
       if (user && user.email) {
@@ -38,7 +37,6 @@ export default function Dashboard() {
     return () => unsubAuth();
   }, []);
 
-  // ডেটা লোড
   useEffect(() => {
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
       setShops(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -61,7 +59,6 @@ export default function Dashboard() {
 
   if (loading) return <div className="flex items-center justify-center h-screen font-bold text-brand-navy">Loading...</div>;
 
-  // ওয়্যারহাউসের মোট টাকার পরিমাণ
   const warehouseValue = products.reduce((total, p) => {
     const prodValue = p.variations?.reduce((sum: number, v: any) => sum + ((v.stock || 0) * (v.costPrice || 0)), 0) || 0;
     return total + prodValue;
@@ -77,7 +74,6 @@ export default function Dashboard() {
         <p className="text-gray-500 text-[11px] md:text-sm mt-0.5">Business overview for today.</p>
       </div>
 
-      {/* মোবাইলে ২ কলাম, কম্পিউটারে ৩ কলাম */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-4">
         
         {/* ওয়্যারহাউস কার্ড */}
@@ -102,7 +98,7 @@ export default function Dashboard() {
           </Link>
         )}
 
-        {/* দোকানের কার্ডসমূহ */}
+        {/* দোকানের কার্ডসমূহ (লিংক আপডেট করা হয়েছে) */}
         {visibleShops.map((shop) => {
           const shopTodaySales = shopStatements
             .filter(s => s.shop === shop.name && s.type === "Sale" && s.date === today)
@@ -113,7 +109,8 @@ export default function Dashboard() {
             .reduce((sum, i) => sum + ((i.stock || 0) * (i.costPrice || 0)), 0);
 
           return (
-            <Link key={shop.id} href="/shop-inventory" className="bg-white p-3 md:p-5 rounded-xl shadow-sm border-t-4 border-green-500 hover:shadow-md transition group flex flex-col justify-between h-full">
+            {/* এখানে href-এ ?shop=${shop.name} যোগ করা হয়েছে */}
+            <Link key={shop.id} href={`/shop-inventory?shop=${shop.name}`} className="bg-white p-3 md:p-5 rounded-xl shadow-sm border-t-4 border-green-500 hover:shadow-md transition group flex flex-col justify-between h-full">
               <div>
                 <div className="flex justify-between items-start mb-2 md:mb-4">
                   <div className="bg-green-50 p-2 md:p-3 rounded-lg md:rounded-xl">
