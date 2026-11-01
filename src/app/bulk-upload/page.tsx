@@ -33,7 +33,6 @@ export default function BulkUploadPage() {
     const lines = rawData.trim().split("\n");
     let count = 0;
 
-    // বর্তমানে থাকা সব প্রোডাক্ট লোড করা
     const productsRef = collection(db, "products");
     const existingSnapshot = await getDocs(productsRef);
     const existingProducts = existingSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -48,7 +47,6 @@ export default function BulkUploadPage() {
 
       const category = getCategory(rawName);
 
-      // সাইজ ও কালার আলাদা করা
       let size = "";
       let color = "Unknown";
       const colors = ["Grey", "White", "Black", "Navy", "Milance", "Zebra", "Red", "Blue", "Green", "Yellow", "Silver", "Cream", "Peach"];
@@ -63,19 +61,14 @@ export default function BulkUploadPage() {
         }
       }
 
-      // মূল প্রোডাক্টের নাম (সাইজ, কালার, ব্র্যাকেট বাদ দিয়ে)
       let productName = rawName;
       if (sizeMatch) productName = productName.replace(sizeMatch[0], "");
       productName = productName.replace(new RegExp(colors.join("|"), "gi"), "");
       productName = productName.replace(/\(.*\)/g, "").replace(/\s+/g, " ").trim();
-      
-      // নামের শেষে থাকা বাড়তি শব্দ বাদ দেওয়া (যেমন: Colour)
       productName = productName.replace(/Colour/i, "").trim();
       
-      // যদি নাম ফাঁকা হয়ে যায়, তবে আগের নামই রাখা
       if (!productName) productName = rawName;
 
-      // চেক করা প্রোডাক্ট আগে থেকে আছে কিনা
       const existingProduct = existingProducts.find(p => 
         p.name.toLowerCase() === productName.toLowerCase() && 
         p.category === category
@@ -86,16 +79,16 @@ export default function BulkUploadPage() {
         color, 
         stock: qty, 
         costPrice: rate, 
-        sellingPrice: 0 // সেল প্রাইস ০ রাখা হলো
+        sellingPrice: 0 // সেল প্রাইস ০
       };
 
       if (existingProduct) {
-        // প্রোডাক্ট থাকলে নতুন ভ্যারিয়েশন যোগ করা
         await updateDoc(doc(db, "products", existingProduct.id), {
           variations: [...existingProduct.variations, newVariation]
         });
+        // লোকাল অবজেক্ট আপডেট করা
+        existingProduct.variations.push(newVariation);
       } else {
-        // নতুন প্রোডাক্ট তৈরি করা
         const newDocRef = await addDoc(collection(db, "products"), {
           name: productName,
           category: category,
@@ -103,7 +96,6 @@ export default function BulkUploadPage() {
           createdAt: new Date().toISOString()
         });
         
-        // লোকাল লিস্টে নতুন প্রোডাক্টটি যোগ করা যাতে পরের লাইনে আবার ডুপ্লিকেট না হয়
         existingProducts.push({
           id: newDocRef.id,
           name: productName,
@@ -135,7 +127,6 @@ export default function BulkUploadPage() {
             value={rawData}
             onChange={(e) => setRawData(e.target.value)}
           ></textarea>
-          <p className="text-[10px] text-gray-500 mt-1">* সিস্টেম অটোমেটিক্যালি একই নামের প্রোডাক্টগুলোকে একসাথে করে ভ্যারিয়েশন তৈরি করবে।</p>
         </div>
 
         <button onClick={handleProcess} disabled={loading} className="bg-brand-navy text-white px-6 py-2 rounded-lg font-medium text-sm w-full flex items-center justify-center gap-2 hover:bg-brand-navy/90 disabled:bg-gray-400">
