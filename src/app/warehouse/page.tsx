@@ -96,7 +96,6 @@ export default function WarehousePage() {
     return matchShop && matchDate;
   });
 
-  // কার্টে আইটেম যোগ করা
   const addToCart = (product: any, varIndex: number) => {
     const variation = product.variations[varIndex];
     const existingIndex = cart.findIndex(c => c.productId === product.id && c.varIndex === varIndex);
@@ -109,14 +108,12 @@ export default function WarehousePage() {
     }
   };
 
-  // কার্টের পরিমাণ আপডেট (টাইপ করার সময়)
   const updateCartQty = (index: number, qty: string) => {
     const newCart = [...cart];
     newCart[index].qty = qty;
     setCart(newCart);
   };
 
-  // টিক বাটনে ক্লিক করলে পরিমাণ ভ্যালিডেট হবে
   const confirmCartQty = (index: number) => {
     const item = cart[index];
     const qty = Number(item.qty);
@@ -136,7 +133,6 @@ export default function WarehousePage() {
 
   const handleBulkTransfer = async () => {
     if (cart.length === 0 || !selectedShop) { setMessage("Error: কার্টে আইটেম নেই বা দোকান সিলেক্ট করা হয়নি!"); return; }
-    
     const invalidItem = cart.find(item => Number(item.qty) <= 0);
     if (invalidItem) { setMessage(`Error: ${invalidItem.name}-এর পরিমাণ সঠিকভাবে দিন!`); return; }
 
@@ -286,7 +282,6 @@ export default function WarehousePage() {
         <input type="text" placeholder="Search product..." className="w-full bg-transparent outline-none text-sm py-1" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
       </div>
 
-      {/* প্রোডাক্ট লিস্ট */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
         {filteredProducts.map((product) => (
           <div key={product.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
@@ -321,46 +316,40 @@ export default function WarehousePage() {
         ))}
       </div>
 
-      {/* কার্ট (বড় ইনপুট + টিক বাটন) */}
+      {/* কার্ট (সব আইটেম নিচে নিচে, বড় কোয়ান্টিটি বক্স) */}
       {cart.length > 0 && (
         <div className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-300 shadow-2xl p-4 z-40 md:static md:shadow-none md:border-none md:p-0 md:mb-6">
-          <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center gap-4">
+          <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-start md:items-end gap-4">
             <div className="flex-1 w-full">
               <h4 className="font-bold text-brand-navy text-base mb-2 flex items-center gap-2"><ShoppingCart size={20}/> Transfer Cart ({cart.length})</h4>
-              <div className="flex overflow-x-auto gap-3 pb-2">
+              <div className="flex flex-col gap-2 max-h-48 overflow-y-auto pr-2">
                 {cart.map((item, i) => (
-                  <div key={i} className="bg-gray-50 border rounded-lg p-3 text-sm flex items-center gap-3 min-w-max shadow-sm">
-                    <div>
-                      <p className="font-bold text-brand-navy">{item.name}</p>
+                  <div key={i} className="bg-gray-50 border rounded-lg p-3 text-sm flex items-center justify-between gap-3 shadow-sm">
+                    <div className="flex-1">
+                      <p className="font-bold text-brand-navy truncate">{item.name}</p>
                       <p className="text-xs text-gray-500">{item.size}/{item.color}</p>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-2">
                       <input 
                         type="number" 
                         min="1" 
                         max={item.maxStock} 
-                        className="w-20 border p-2 rounded-lg text-center font-bold text-lg" 
+                        className="w-24 border p-2 rounded-lg text-center font-bold text-lg" 
                         value={item.qty} 
                         onChange={(e) => updateCartQty(i, e.target.value)} 
                       />
-                      <button 
-                        onClick={() => confirmCartQty(i)} 
-                        className="bg-green-500 text-white p-2 rounded-lg hover:bg-green-600 transition" 
-                        title="Confirm Quantity"
-                      >
-                        <Check size={20} />
-                      </button>
+                      <button onClick={() => confirmCartQty(i)} className="bg-green-500 text-white p-2 rounded-lg hover:bg-green-600 transition"><Check size={20} /></button>
+                      <button onClick={() => removeFromCart(i)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg"><Trash2 size={20}/></button>
                     </div>
-                    <button onClick={() => removeFromCart(i)} className="text-red-500 hover:bg-red-50 p-2 rounded-lg"><Trash2 size={20}/></button>
                   </div>
                 ))}
               </div>
             </div>
-            <div className="flex gap-2 w-full md:w-auto">
+            <div className="flex gap-2 w-full md:w-auto md:flex-col">
               <select className="border p-2 rounded-lg text-sm font-medium w-full md:w-40" value={selectedShop} onChange={(e) => setSelectedShop(e.target.value)}>
                 {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
-              <button onClick={handleBulkTransfer} className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap hover:bg-brand-navy/90">Transfer All</button>
+              <button onClick={handleBulkTransfer} className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap hover:bg-brand-navy/90 w-full">Transfer All</button>
             </div>
           </div>
         </div>
