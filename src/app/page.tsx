@@ -109,7 +109,7 @@ export default function Dashboard() {
             .reduce((sum, i) => sum + ((i.stock || 0) * (i.costPrice || 0)), 0);
 
           return (
-            <Link key={shop.id} href={`/shop-inventory?shop=${shop.name}`} className="bg-white p-3 md:p-5 rounded-xl shadow-sm border-t-4 border-green-500 hover:shadow-md transition group flex flex-col justify-between h-full">
+            <Link key={shop.id}href={`/shop-dashboard?shop=${shop.name}`} className="bg-white p-3 md:p-5 rounded-xl shadow-sm border-t-4 border-green-500 hover:shadow-md transition group flex flex-col justify-between h-full">
               <div>
                 <div className="flex justify-between items-start mb-2 md:mb-4">
                   <div className="bg-green-50 p-2 md:p-3 rounded-lg md:rounded-xl">
