@@ -31,32 +31,32 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       setUser(currentUser);
       
       if (currentUser && currentUser.email) {
-        // ১. নতুন অ্যাডমিন ইমেইলের জন্য ফলব্যাক লজিক
         if (currentUser.email === "admin@jahid.com") {
           setRole("admin");
         } else {
-          // ২. অন্যান্য ইউজারদের জন্য ফায়ারবেস থেকে রোল চেক
           try {
             const docSnap = await getDoc(doc(db, "users", currentUser.email));
             if (docSnap.exists()) {
               setRole(docSnap.data().role || "manager");
             } else {
-              setRole("manager"); // ডকুমেন্ট না থাকলে ডিফল্ট
+              setRole("manager");
             }
           } catch (error) {
-            console.log("Error fetching role:", error);
             setRole("manager");
           }
         }
       }
       
       setLoading(false);
-      if (!currentUser && pathname !== "/login") router.push("/login");
+      
+      // ✅ এখানে চেক করা হয়েছে: যদি পেজটি '/track' না হয় এবং ইউজার লগইন না থাকে, তবেই লগইন পেজে পাঠাবে।
+      if (!currentUser && pathname !== "/login" && !pathname.startsWith("/track")) {
+        router.push("/login");
+      }
     });
     return () => unsubscribe();
   }, [pathname, router]);
 
-  // পেজ পরিবর্তন হলে মোবাইল মেনু বন্ধ হবে
   useEffect(() => { setIsMobileMenuOpen(false); }, [pathname]);
 
   const handleLogout = async () => {
@@ -64,7 +64,6 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     router.push("/login");
   };
 
-  // সাইডবারের মেনু (রোল অনুযায়ী লুকানো/দেখানো হবে)
   const navLinks = [
     { name: "Dashboard", href: "/", icon: <LayoutDashboard size={18} />, roles: ["admin", "manager", "assistant_manager", "warehouse_manager", "merchandiser", "engineer", "quality_inspector"] },
     { name: "Sample Tracking", href: "/samples", icon: <Package size={18} />, roles: ["admin", "manager", "assistant_manager", "merchandiser", "quality_inspector"] },
@@ -89,7 +88,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body className={`${inter.className} bg-brand-light text-gray-800`}>
         {loading ? (
           <div className="flex items-center justify-center h-screen font-bold text-brand-navy text-xl">Loading...</div>
-        ) : pathname === "/login" ? (
+        ) : 
+        // ✅ বায়ার লিংকে ঢুকলে সাইডবার বা লগইন চেক ছাড়া সরাসরি পেজ দেখাবে
+        pathname === "/login" || pathname.startsWith("/track") ? (
           <>{children}</>
         ) : (
           <div className="flex h-screen overflow-hidden">
