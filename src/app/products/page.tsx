@@ -1,149 +1,220 @@
 // @ts-nocheck
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
-import { collection, addDoc, getDocs, doc, updateDoc } from "firebase/firestore";
-import { Upload, CheckCircle, AlertCircle } from "lucide-react";
+import { collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc } from "firebase/firestore";
+import { PlusCircle, Box, Trash2, Edit, X, Search, Filter } from "lucide-react";
 
-export default function BulkUploadPage() {
-  const [rawData, setRawData] = useState("");
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [processedCount, setProcessedCount] = useState(0);
+type Variation = {
+  size: string;
+  color: string;
+  stock: number;
+  costPrice: number;
+};
 
-  const getCategory = (name: string) => {
-    const n = name.toLowerCase();
-    if (n.includes("tube")) return "Cotton Tube";
-    if (n.includes("dosting")) return "Cotton Dosting";
-    if (n.includes("label")) return "Cotton Label";
-    if (n.includes("tape") && !n.includes("bright")) return "Cotton Tape";
-    if (n.includes("polertar")) return "Polyester Tube";
-    if (n.includes("polestar")) return "Polyester Dosting";
-    if (n.includes("canvas")) return "Canvas";
-    if (n.includes("bright")) return "Bright Tape";
-    if (n.includes("tar")) return "Tar File";
-    return "Others";
-  };
+export default function ProductsPage() {
+  const [products, setProducts] = useState<any[]>([]);
+  const [dbCategories, setDbCategories] = useState<any[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterCategory, setFilterCategory] = useState("All");
 
-  const handleProcess = async () => {
-    if (!rawData.trim()) { setMessage("Error: ডেটা পেস্ট করুন!"); return; }
-    setLoading(true);
-    setMessage("");
-    setProcessedCount(0);
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState(""); 
+  const [variations, setVariations] = useState<Variation[]>([
+    { size: "", color: "", stock: 0, costPrice: 0 }
+  ]);
 
-    const lines = rawData.trim().split("\n");
-    let count = 0;
+  const [editingProduct, setEditingProduct] = useState<any>(null);
 
-    const productsRef = collection(db, "products");
-    const existingSnapshot = await getDocs(productsRef);
-    
-    const existingProducts: any[] = existingSnapshot.docs.map(doc => {
-      const data: any = doc.data();
-      return { id: doc.id, ...data };
+  useEffect(() => {
+    const qProducts = query(collection(db, "products"), orderBy("createdAt", "desc"));
+    const unsubProducts = onSnapshot(qProducts, (snapshot) => {
+      setProducts(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     });
 
-    for (const line of lines) {
-      const parts = line.split("\t").map(p => p.trim());
-      if (parts.length < 3) continue;
+    const qCategories = query(collection(db, "categories"));
+    const unsubCategories = onSnapshot(qCategories, (snapshot) => {
+      setDbCategories(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    });
 
-      const rawName = parts[0];
-      const qty = Number(parts[1]) || 0;
-      const rate = Number(parts[2]) || 0;
+    return () => { unsubProducts(); unsubCategories(); };
+  }, []);
 
-      const category = getCategory(rawName);
+  const allCategories = Array.from(new Set([
+    ...dbCategories.map(c => c.name),
+    ...products.map(p => p.category)
+  ])).filter(Boolean);
 
-      let size = "";
-      let color = "Unknown";
-      const colors = ["Grey", "White", "Black", "Navy", "Milance", "Zebra", "Red", "Blue", "Green", "Yellow", "Silver", "Cream", "Peach"];
-      
-      const sizeMatch = rawName.match(/(\d+(\.\d+)?\s*(CM|MM|CM\.|MM\.))/i);
-      if (sizeMatch) size = sizeMatch[0].toUpperCase();
+  const filteredProducts = products.filter((product) => {
+    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                          product.category.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = filterCategory === "All" || product.category === filterCategory;
+    return matchesSearch && matchesCategory;
+  });
 
-      for (const c of colors) {
-        if (rawName.toLowerCase().includes(c.toLowerCase())) {
-          color = c;
-          break;
-        }
-      }
+  const addVariation = () => setVariations([...variations, { size: "", color: "", stock: 0, costPrice: 0 }]);
+  
+  const updateVariation = (index: number, field: keyof Variation, value: string | number) => {
+    const newVariations = [...variations];
+    newVariations[index] = { ...newVariations[index], [field]: value };
+    setVariations(newVariations);
+  };
 
-      let productName = rawName;
-      if (sizeMatch) productName = productName.replace(sizeMatch[0], "");
-      productName = productName.replace(new RegExp(colors.join("|"), "gi"), "");
-      productName = productName.replace(/\(.*\)/g, "").replace(/\s+/g, " ").trim();
-      productName = productName.replace(/Colour/i, "").trim();
-      
-      if (!productName) productName = rawName;
+  const removeVariation = (index: number) => setVariations(variations.filter((_, i) => i !== index));
 
-      const existingProduct = existingProducts.find((p: any) => 
-        p.name && p.name.toLowerCase() === productName.toLowerCase() && 
-        p.category === category
-      );
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!category) { alert("ক্যাটাগরি সিলেক্ট করুন!"); return; }
 
-      const newVariation = { 
-        size, 
-        color, 
-        stock: qty, 
-        costPrice: rate
-      };
-
-      if (existingProduct) {
-        await updateDoc(doc(db, "products", existingProduct.id), {
-          variations: [...(existingProduct.variations || []), newVariation]
-        });
-        if (!existingProduct.variations) existingProduct.variations = [];
-        existingProduct.variations.push(newVariation);
+    try {
+      if (editingProduct) {
+        await updateDoc(doc(db, "products", editingProduct.id), { name, category, variations });
+        alert("Success: প্রোডাক্ট আপডেট হয়েছে!");
       } else {
-        const newDocRef = await addDoc(collection(db, "products"), {
-          name: productName,
-          category: category,
-          variations: [newVariation],
-          createdAt: new Date().toISOString()
-        });
-        
-        existingProducts.push({
-          id: newDocRef.id,
-          name: productName,
-          category: category,
-          variations: [newVariation]
-        });
+        await addDoc(collection(db, "products"), { name, category, variations, createdAt: new Date().toISOString() });
+        alert("Success: নতুন প্রোডাক্ট সেভ হয়েছে!");
       }
+      setName(""); setVariations([{ size: "", color: "", stock: 0, costPrice: 0 }]);
+      setShowForm(false); setEditingProduct(null);
+    } catch (error) { alert("প্রোডাক্ট সেভ করতে সমস্যা হয়েছে!"); }
+  };
 
-      count++;
-    }
-
-    setProcessedCount(count);
-    setMessage(`Success: ${count} টি আইটেম প্রসেস করা হয়েছে!`);
-    setLoading(false);
-    setRawData("");
+  const handleEdit = (product: any) => {
+    setEditingProduct(product); 
+    setName(product.name); 
+    setCategory(product.category);
+    setVariations(product.variations); 
+    setShowForm(true);
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <h2 className="text-2xl font-bold text-brand-navy mb-4">Bulk Product Upload</h2>
-      
-      <div className="bg-white p-4 rounded-xl shadow-md border-t-4 border-brand-navy mb-4">
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">Paste Excel Data (Name, Qty, Rate)</label>
-          <textarea 
-            rows={10} 
-            className="w-full border p-2 rounded-lg text-sm font-mono" 
-            placeholder="সব ডেটা একসাথে পেস্ট করুন..." 
-            value={rawData}
-            onChange={(e) => setRawData(e.target.value)}
-          ></textarea>
-        </div>
-
-        <button onClick={handleProcess} disabled={loading} className="bg-brand-navy text-white px-6 py-2 rounded-lg font-medium text-sm w-full flex items-center justify-center gap-2 hover:bg-brand-navy/90 disabled:bg-gray-400">
-          {loading ? "Processing..." : <><Upload size={16}/> Process All Data</>}
+    <div className="max-w-6xl mx-auto">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
+        <h2 className="text-2xl font-bold text-brand-navy">Product Catalog</h2>
+        <button 
+          onClick={() => { setShowForm(!showForm); setEditingProduct(null); setName(""); setVariations([{ size: "", color: "", stock: 0, costPrice: 0 }]); }}
+          className="bg-brand-navy text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-brand-navy/90 transition flex items-center gap-1 w-full md:w-auto justify-center"
+        >
+          <PlusCircle size={16} /> {showForm ? "Close Form" : "Add New Product"}
         </button>
       </div>
 
-      {message && (
-        <div className={`p-4 rounded-lg font-medium flex items-center gap-2 ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
-          {message.includes("Error") ? <AlertCircle size={20}/> : <CheckCircle size={20}/>}
-          {message}
+      <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-2">
+        <div className="flex-1 flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg">
+          <Search size={16} className="text-gray-400" />
+          <input 
+            type="text" 
+            placeholder="Search by product name or category..." 
+            className="w-full bg-transparent outline-none text-sm"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
+        
+        <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg md:w-64">
+          <Filter size={16} className="text-gray-400" />
+          <select 
+            className="w-full bg-transparent outline-none text-sm font-medium text-brand-navy cursor-pointer"
+            value={filterCategory}
+            onChange={(e) => setFilterCategory(e.target.value)}
+          >
+            <option value="All">All Categories</option>
+            {allCategories.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleSubmit} className="bg-white p-4 rounded-xl shadow-md border-t-4 border-brand-navy mb-6">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-lg font-bold text-brand-navy">{editingProduct ? "Edit Product" : "Add New Product"}</h3>
+            <button type="button" onClick={() => { setShowForm(false); setEditingProduct(null); }} className="text-gray-400 hover:text-red-500"><X size={20}/></button>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+            <div>
+              <label className="block text-xs font-medium mb-1">Product Name</label>
+              <input required placeholder="e.g. Dressing" className="w-full border p-1.5 rounded-lg text-sm" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Category</label>
+              <select required className="w-full border p-1.5 rounded-lg text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
+                <option value="" disabled>Select a Category</option>
+                {allCategories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <h4 className="text-sm font-semibold text-gray-700 mb-2 border-b pb-1">Variations (Size, Color, Stock, Cost)</h4>
+            
+            {variations.map((v, index) => (
+              <div key={index} className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2 items-end bg-gray-50 p-2 rounded-lg border">
+                <div><label className="text-[10px] font-medium text-gray-500">Size</label><input required placeholder="10 cm" className="w-full border p-1 rounded text-xs" value={v.size} onChange={(e) => updateVariation(index, "size", e.target.value)} /></div>
+                <div><label className="text-[10px] font-medium text-gray-500">Color</label><input required placeholder="Red" className="w-full border p-1 rounded text-xs" value={v.color} onChange={(e) => updateVariation(index, "color", e.target.value)} /></div>
+                <div><label className="text-[10px] font-medium text-gray-500">Stock</label><input required type="number" placeholder="100" className="w-full border p-1 rounded text-xs" value={v.stock || ""} onChange={(e) => updateVariation(index, "stock", Number(e.target.value))} /></div>
+                <div className="flex gap-1 items-end">
+                  <div className="flex-1"><label className="text-[10px] font-medium text-gray-500">Cost</label><input required type="number" placeholder="50" className="w-full border p-1 rounded text-xs" value={v.costPrice || ""} onChange={(e) => updateVariation(index, "costPrice", Number(e.target.value))} /></div>
+                  <button type="button" onClick={() => removeVariation(index)} className="text-red-500 hover:bg-red-50 p-1 rounded mb-0.5"><Trash2 size={14} /></button>
+                </div>
+              </div>
+            ))}
+            
+            <button type="button" onClick={addVariation} className="text-brand-navy text-xs font-medium hover:underline flex items-center gap-1 mt-1">
+              <PlusCircle size={14} /> Add Size/Color
+            </button>
+          </div>
+
+          <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium text-sm w-full md:w-auto mt-2">
+            {editingProduct ? "Update Product" : "Save Product"}
+          </button>
+        </form>
       )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {filteredProducts.length === 0 && <p className="text-gray-500 text-center col-span-2 py-4">কোনো প্রোডাক্ট পাওয়া যায়নি।</p>}
+        
+        {filteredProducts.map((product) => (
+          <div key={product.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col relative">
+            <button onClick={() => handleEdit(product)} className="absolute top-3 right-3 bg-gray-100 text-gray-500 p-1.5 rounded-lg hover:bg-brand-navy hover:text-white transition">
+              <Edit size={14} />
+            </button>
+
+            <div className="flex items-center gap-2 mb-2 border-b pb-2 pr-8">
+              <div className="bg-brand-navy/10 p-1.5 rounded-lg"><Box className="text-brand-navy" size={18} /></div>
+              <div>
+                <h3 className="text-sm font-bold text-brand-navy">{product.name}</h3>
+                <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">{product.category}</span>
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="text-[10px] text-gray-500 uppercase bg-gray-50">
+                  <tr>
+                    <th className="px-1 py-1">Size</th><th className="px-1 py-1">Color</th>
+                    <th className="px-1 py-1 text-right">Stock</th><th className="px-1 py-1 text-right">Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {product.variations.map((v: Variation, i: number) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="px-1 py-1.5 font-medium">{v.size}</td>
+                      <td className="px-1 py-1.5">{v.color}</td>
+                      <td className="px-1 py-1.5 text-right font-semibold text-brand-navy">{v.stock}</td>
+                      <td className="px-1 py-1.5 text-right text-gray-500">৳{v.costPrice}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
