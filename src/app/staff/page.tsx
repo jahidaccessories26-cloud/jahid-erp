@@ -6,19 +6,29 @@ import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
 import { collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc } from "firebase/firestore";
 import { UserPlus, Edit, Trash2, X } from "lucide-react";
 
+// রোলের লিস্ট
+const ROLES = [
+  { value: "admin", label: "Admin (Owner)" },
+  { value: "manager", label: "Manager (Shop)" },
+  { value: "assistant_manager", label: "Assistant Manager" },
+  { value: "warehouse_manager", label: "Warehouse Manager" },
+  { value: "merchandiser", label: "Merchandiser (Sample)" },
+  { value: "engineer", label: "Engineer" },
+  { value: "quality_inspector", label: "Quality Inspector" },
+];
+
 export default function StaffPage() {
   const [staffList, setStaffList] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState(""); // নতুন নাম ফিল্ড
+  const [name, setName] = useState("");
   const [role, setRole] = useState("manager");
   const [assignedShop, setAssignedShop] = useState("");
   
   const [message, setMessage] = useState("");
   
-  // এডিট স্টেট
   const [editingStaff, setEditingStaff] = useState<any>(null);
   const [editName, setEditName] = useState("");
   const [editRole, setEditRole] = useState("");
@@ -45,12 +55,11 @@ export default function StaffPage() {
       const secondaryAuth = getAuth(secondaryApp);
       await createUserWithEmailAndPassword(secondaryAuth, email, password);
       
-      // নাম, রোল এবং দোকান সেভ
       await setDoc(doc(db, "users", email), {
         name: name, 
         email: email, 
         role: role, 
-        assignedShop: role === "manager" ? assignedShop : "All",
+        assignedShop: ["manager", "assistant_manager", "warehouse_manager"].includes(role) ? assignedShop : "All",
         createdAt: new Date().toISOString()
       });
 
@@ -62,14 +71,14 @@ export default function StaffPage() {
     } catch (error: any) { setMessage(`Error: ${error.message}`); }
   };
 
-  // এডিট সেভ
+  // এডিট
   const handleUpdateRole = async () => {
     if (!editingStaff) return;
     try {
       await updateDoc(doc(db, "users", editingStaff.email), { 
         name: editName,
         role: editRole,
-        assignedShop: editRole === "manager" ? editShop : "All"
+        assignedShop: ["manager", "assistant_manager", "warehouse_manager"].includes(editRole) ? editShop : "All"
       });
       setEditingStaff(null);
     } catch (error) { alert("আপডেট করতে সমস্যা হয়েছে!"); }
@@ -90,16 +99,15 @@ export default function StaffPage() {
         {message && <p className={`mb-3 text-sm font-medium ${message.includes("Error") ? "text-red-500" : "text-green-600"}`}>{message}</p>}
 
         <form onSubmit={handleAddStaff} className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-          <input required type="text" placeholder="Full Name (e.g. Ripon)" className="border p-2 rounded-lg" value={name} onChange={(e) => setName(e.target.value)} />
+          <input required type="text" placeholder="Full Name" className="border p-2 rounded-lg" value={name} onChange={(e) => setName(e.target.value)} />
           <input required type="email" placeholder="Email" className="border p-2 rounded-lg" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input required type="password" placeholder="Password" className="border p-2 rounded-lg" value={password} onChange={(e) => setPassword(e.target.value)} />
+          
           <select className="border p-2 rounded-lg" value={role} onChange={(e) => setRole(e.target.value)}>
-            <option value="manager">Manager (Shop)</option>
-            <option value="merchandiser">Merchandiser (Sample)</option>
-            <option value="admin">Admin</option>
+            {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
           
-          <select className={`border p-2 rounded-lg ${role !== 'manager' && 'opacity-50'}`} value={assignedShop} onChange={(e) => setAssignedShop(e.target.value)} disabled={role !== 'manager'}>
+          <select className={`border p-2 rounded-lg ${!["manager", "assistant_manager", "warehouse_manager"].includes(role) && 'opacity-50'}`} value={assignedShop} onChange={(e) => setAssignedShop(e.target.value)} disabled={!["manager", "assistant_manager", "warehouse_manager"].includes(role)}>
             {shops.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
           </select>
 
@@ -125,7 +133,7 @@ export default function StaffPage() {
                 <td className="px-4 py-3 text-gray-600">{staff.email}</td>
                 <td className="px-4 py-3"><span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold uppercase">{staff.role}</span></td>
                 <td className="px-4 py-3">
-                  {staff.role === "manager" ? <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-bold">{staff.assignedShop || "N/A"}</span> : <span className="text-gray-400 text-xs">N/A</span>}
+                  {["manager", "assistant_manager", "warehouse_manager"].includes(staff.role) ? <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-bold">{staff.assignedShop || "N/A"}</span> : <span className="text-gray-400 text-xs">N/A</span>}
                 </td>
                 <td className="px-4 py-3 text-right flex justify-end gap-2">
                   <button onClick={() => { setEditingStaff(staff); setEditName(staff.name || ""); setEditRole(staff.role); setEditShop(staff.assignedShop || ""); }} className="text-brand-navy bg-gray-100 p-1.5 rounded-lg"><Edit size={16}/></button>
@@ -155,15 +163,13 @@ export default function StaffPage() {
               <div>
                 <label className="block text-xs font-medium mb-1">Role</label>
                 <select className="w-full border p-2 rounded-lg" value={editRole} onChange={(e) => setEditRole(e.target.value)}>
-                  <option value="manager">Manager</option>
-                  <option value="merchandiser">Merchandiser</option>
-                  <option value="admin">Admin</option>
+                  {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </div>
               
-              {editRole === 'manager' && (
+              {["manager", "assistant_manager", "warehouse_manager"].includes(editRole) && (
                 <div>
-                  <label className="block text-xs font-medium mb-1">Assigned Shop</label>
+                  <label className="block text-xs font-medium mb-1">Assigned Shop/Warehouse</label>
                   <select className="w-full border p-2 rounded-lg" value={editShop} onChange={(e) => setEditShop(e.target.value)}>
                     {shops.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
                   </select>
