@@ -2,7 +2,6 @@
 import { useState, useEffect } from "react";
 import { db, auth } from "../lib/firebase";
 import { collection, onSnapshot, query, doc, getDoc } from "firebase/firestore";
-import { useRouter } from "next/navigation";
 import { Package, AlertCircle, CheckCircle, ShoppingBag, DollarSign, Store, Box } from "lucide-react";
 
 export default function Dashboard() {
@@ -21,11 +20,18 @@ export default function Dashboard() {
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(async (user) => {
       if (user && user.email) {
-        const docSnap = await getDoc(doc(db, "users", user.email));
-        if (docSnap.exists()) {
-          setUserRole(docSnap.data().role);
-          setUserShop(docSnap.data().assignedShop || "");
-          setUserName(docSnap.data().name || "");
+        // ফলব্যাক লজিক: ইমেইলে admin থাকলে সরাসরি অ্যাডমিন
+        if (user.email.includes("admin@jahid.com")) {
+          setUserRole("admin");
+          setUserName("Jahid (Admin)");
+        } else {
+          // ফায়ারবেস থেকে রোল চেক করা
+          const docSnap = await getDoc(doc(db, "users", user.email));
+          if (docSnap.exists()) {
+            setUserRole(docSnap.data().role || "manager");
+            setUserShop(docSnap.data().assignedShop || "");
+            setUserName(docSnap.data().name || "User");
+          }
         }
       }
       setLoading(false);
@@ -56,7 +62,7 @@ export default function Dashboard() {
 
   if (loading) return <div className="flex items-center justify-center h-screen font-bold text-brand-navy">Loading Dashboard...</div>;
 
-  // ৩. ডেটা ফিল্টার (রোল অনুযায়ী)
+  // ৩. ডেটা ফিল্টার
   const today = new Date().toISOString().split("T")[0];
 
   // অ্যাডমিন ডেটা
@@ -64,14 +70,14 @@ export default function Dashboard() {
   const adminPendingOrders = orders.reduce((sum, o) => sum + o.pending, 0);
   const adminPendingSamples = samples.filter(s => s.currentStatus !== "Approved" && s.currentStatus !== "Rejected").length;
 
-  // ম্যানেজার ডেটা (নিজের দোকানের)
+  // ম্যানেজার ডেটা
   const managerTodaySales = sales.filter(s => s.shop === userShop && s.date.startsWith(today)).reduce((sum, s) => sum + s.totalAmount, 0);
   const managerPendingOrders = orders.filter(o => o.shop === userShop).reduce((sum, o) => sum + o.pending, 0);
   const managerStock = shopInventories.filter(i => i.shop === userShop).reduce((sum, i) => sum + i.stock, 0);
 
   // ওয়্যারহাউস স্টক
   const warehouseStock = products.reduce((total, p) => {
-    const prodStock = p.variations.reduce((sum: number, v: any) => sum + (v.stock || 0), 0);
+    const prodStock = p.variations?.reduce((sum: number, v: any) => sum + (v.stock || 0), 0) || 0;
     return total + prodStock;
   }, 0);
 
@@ -152,23 +158,6 @@ export default function Dashboard() {
           </div>
         </>
       )}
-
-      {/* ------------------- ওয়্যারহাউস ম্যানেজার ড্যাশবোর্ড ------------------- */}
-      {!isAdmin && !isManager && (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-brand-navy">
-              <p className="text-gray-500 text-sm font-medium mb-1">Total Warehouse Stock</p>
-              <h3 className="text-3xl font-bold text-brand-navy">{warehouseStock} <span className="text-sm font-normal">pcs</span></h3>
-            </div>
-            <div className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-red-500">
-              <p className="text-gray-500 text-sm font-medium mb-1">Total Pending Orders</p>
-              <h3 className="text-3xl font-bold text-red-600">{adminPendingOrders} <span className="text-sm font-normal">pcs</span></h3>
-            </div>
-          </div>
-        </>
-      )}
-
     </div>
   );
 }
