@@ -1,31 +1,30 @@
+// @ts-nocheck
 "use client";
 import { useState, useEffect } from "react";
 import { db, auth } from "../lib/firebase";
 import { collection, onSnapshot, query, doc, getDoc } from "firebase/firestore";
-import { Package, AlertCircle, CheckCircle, ShoppingBag, DollarSign, Store, Box } from "lucide-react";
+import { Store, Building2, ChevronRight, Package, TrendingUp } from "lucide-react";
+import Link from "next/link";
 
 export default function Dashboard() {
-  const [samples, setSamples] = useState<any[]>([]);
-  const [sales, setSales] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [orders, setOrders] = useState<any[]>([]);
-  const [shopInventories, setShopInventories] = useState<any[]>([]);
-  
   const [userRole, setUserRole] = useState("manager");
   const [userShop, setUserShop] = useState("");
   const [userName, setUserName] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // ১. ইউজারের রোল এবং দোকান চেক করা
+  const [shops, setShops] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [shopInventories, setShopInventories] = useState<any[]>([]);
+  const [shopStatements, setShopStatements] = useState<any[]>([]);
+
+  // ইউজার চেক
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(async (user) => {
       if (user && user.email) {
-        // ফলব্যাক লজিক: ইমেইলে admin থাকলে সরাসরি অ্যাডমিন
-        if (user.email.includes("admin@jahid.com")) {
+        if (user.email === "admin@jahid.com") {
           setUserRole("admin");
-          setUserName("Jahid (Admin)");
+          setUserName("Jahid");
         } else {
-          // ফায়ারবেস থেকে রোল চেক করা
           const docSnap = await getDoc(doc(db, "users", user.email));
           if (docSnap.exists()) {
             setUserRole(docSnap.data().role || "manager");
@@ -39,125 +38,112 @@ export default function Dashboard() {
     return () => unsubAuth();
   }, []);
 
-  // ২. ডেটা লোড করা
+  // ডেটা লোড
   useEffect(() => {
-    const unsubSamples = onSnapshot(query(collection(db, "samples")), (snapshot) => {
-      setSamples(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
+      setShops(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    const unsubSales = onSnapshot(query(collection(db, "sales")), (snapshot) => {
-      setSales(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
+
     const unsubProducts = onSnapshot(query(collection(db, "products")), (snapshot) => {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    const unsubOrders = onSnapshot(query(collection(db, "corporate_orders")), (snapshot) => {
-      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-    const unsubShopInv = onSnapshot(query(collection(db, "shop_inventories")), (snapshot) => {
+
+    const unsubInv = onSnapshot(query(collection(db, "shop_inventories")), (snapshot) => {
       setShopInventories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    return () => { unsubSamples(); unsubSales(); unsubProducts(); unsubOrders(); unsubShopInv(); };
+    const unsubStatements = onSnapshot(query(collection(db, "shop_statements")), (snapshot) => {
+      setShopStatements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubShops(); unsubProducts(); unsubInv(); unsubStatements(); };
   }, []);
 
-  if (loading) return <div className="flex items-center justify-center h-screen font-bold text-brand-navy">Loading Dashboard...</div>;
+  if (loading) return <div className="flex items-center justify-center h-screen font-bold text-brand-navy">Loading...</div>;
 
-  // ৩. ডেটা ফিল্টার
-  const today = new Date().toISOString().split("T")[0];
-
-  // অ্যাডমিন ডেটা
-  const adminTodaySales = sales.filter(s => s.date.startsWith(today)).reduce((sum, s) => sum + s.totalAmount, 0);
-  const adminPendingOrders = orders.reduce((sum, o) => sum + o.pending, 0);
-  const adminPendingSamples = samples.filter(s => s.currentStatus !== "Approved" && s.currentStatus !== "Rejected").length;
-
-  // ম্যানেজার ডেটা
-  const managerTodaySales = sales.filter(s => s.shop === userShop && s.date.startsWith(today)).reduce((sum, s) => sum + s.totalAmount, 0);
-  const managerPendingOrders = orders.filter(o => o.shop === userShop).reduce((sum, o) => sum + o.pending, 0);
-  const managerStock = shopInventories.filter(i => i.shop === userShop).reduce((sum, i) => sum + i.stock, 0);
-
-  // ওয়্যারহাউস স্টক
+  // ওয়্যারহাউস স্টক ক্যালকুলেশন
   const warehouseStock = products.reduce((total, p) => {
     const prodStock = p.variations?.reduce((sum: number, v: any) => sum + (v.stock || 0), 0) || 0;
     return total + prodStock;
   }, 0);
 
-  // রোল চেক
-  const isAdmin = userRole === "admin";
-  const isManager = ["manager", "assistant_manager"].includes(userRole);
+  // আজকের তারিখ
+  const today = new Date().toISOString().split("T")[0];
+
+  // দোকান ফিল্টার (ম্যানেজার হলে শুধু নিজের দোকান)
+  const visibleShops = userRole === "admin" ? shops : shops.filter(s => s.name === userShop);
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="flex justify-between items-end mb-6">
-        <div>
-          <h2 className="text-2xl md:text-3xl font-bold text-brand-navy">Dashboard Overview</h2>
-          <p className="text-gray-500 text-sm mt-1">Welcome back, <strong>{userName || "User"}</strong> ({userRole})</p>
-        </div>
+    <div className="max-w-5xl mx-auto">
+      <div className="mb-6">
+        <h2 className="text-2xl md:text-3xl font-bold text-brand-navy">Welcome back, {userName}</h2>
+        <p className="text-gray-500 text-sm mt-1">Here is your business overview for today.</p>
       </div>
 
-      {/* ------------------- অ্যাডমিন ড্যাশবোর্ড ------------------- */}
-      {isAdmin && (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-6 mb-6">
-            <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border-t-4 border-green-600">
-              <p className="text-gray-500 text-xs md:text-sm font-medium mb-1">Today's Total Sales</p>
-              <h3 className="text-xl md:text-3xl font-bold text-green-700">Tk. {adminTodaySales}</h3>
-            </div>
-            <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border-t-4 border-red-500">
-              <p className="text-gray-500 text-xs md:text-sm font-medium mb-1">Pending Orders</p>
-              <h3 className="text-xl md:text-3xl font-bold text-red-600">{adminPendingOrders} <span className="text-xs font-normal">pcs</span></h3>
-            </div>
-            <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border-t-4 border-brand-navy">
-              <p className="text-gray-500 text-xs md:text-sm font-medium mb-1">Total Products</p>
-              <h3 className="text-xl md:text-3xl font-bold text-brand-navy">{products.length}</h3>
-            </div>
-            <div className="bg-white p-4 md:p-6 rounded-xl shadow-sm border-t-4 border-blue-500">
-              <p className="text-gray-500 text-xs md:text-sm font-medium mb-1">Pending Samples</p>
-              <h3 className="text-xl md:text-3xl font-bold text-blue-600">{adminPendingSamples}</h3>
-            </div>
-          </div>
-          
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-            <h3 className="font-bold text-brand-navy mb-3 flex items-center gap-2"><Store size={18}/> Warehouse Status</h3>
-            <p className="text-gray-600">Total items currently in warehouse: <strong>{warehouseStock} pcs</strong></p>
-          </div>
-        </>
-      )}
-
-      {/* ------------------- ম্যানেজার ড্যাশবোর্ড ------------------- */}
-      {isManager && (
-        <>
-          <div className="bg-brand-navy text-white p-4 rounded-xl shadow-md mb-6 flex items-center gap-3">
-            <Store size={24} />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        
+        {/* ওয়্যারহাউস কার্ড (শুধু অ্যাডমিন দেখবে) */}
+        {userRole === "admin" && (
+          <Link href="/warehouse" className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-brand-navy hover:shadow-md transition group flex flex-col justify-between h-full">
             <div>
-              <p className="text-xs text-gray-300">Assigned Shop</p>
-              <h3 className="text-lg font-bold">{userShop || "No Shop Assigned"}</h3>
+              <div className="flex justify-between items-start mb-4">
+                <div className="bg-brand-navy/10 p-3 rounded-xl">
+                  <Store size={28} className="text-brand-navy" />
+                </div>
+                <ChevronRight className="text-gray-300 group-hover:text-brand-navy transition" />
+              </div>
+              <h3 className="text-xl font-bold text-brand-navy mb-1">Warehouse</h3>
+              <p className="text-sm text-gray-500 mb-4">Main Storage & Stock Transfer</p>
             </div>
-          </div>
+            
+            <div className="bg-gray-50 p-3 rounded-lg border border-gray-100 mt-auto">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">Total Stock:</span>
+                <span className="font-bold text-brand-navy text-lg">{warehouseStock} pcs</span>
+              </div>
+            </div>
+          </Link>
+        )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-green-600">
-              <p className="text-gray-500 text-sm font-medium mb-1">Today's Sales (My Shop)</p>
-              <h3 className="text-2xl font-bold text-green-700">Tk. {managerTodaySales}</h3>
-            </div>
-            <div className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-blue-500">
-              <p className="text-gray-500 text-sm font-medium mb-1">My Current Stock</p>
-              <h3 className="text-2xl font-bold text-blue-600">{managerStock} <span className="text-sm font-normal">pcs</span></h3>
-            </div>
-            <div className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-red-500">
-              <p className="text-gray-500 text-sm font-medium mb-1">Pending Orders (My Shop)</p>
-              <h3 className="text-2xl font-bold text-red-600">{managerPendingOrders} <span className="text-sm font-normal">pcs</span></h3>
-            </div>
-          </div>
+        {/* দোকানের কার্ডসমূহ */}
+        {visibleShops.map((shop) => {
+          // দোকানের আজকের সেলস
+          const shopTodaySales = shopStatements
+            .filter(s => s.shop === shop.name && s.type === "Sale" && s.date === today)
+            .reduce((sum, s) => sum + s.amount, 0);
 
-          <div className="bg-blue-50 p-5 rounded-xl border border-blue-200 flex items-center justify-between">
-             <div>
-               <h3 className="font-bold text-blue-900 mb-1 flex items-center gap-2"><Box size={18}/> Warehouse Stock</h3>
-               <p className="text-sm text-blue-700">মাল প্রয়োজন হলে ওয়্যারহাউস থেকে ট্রান্সফার করুন।</p>
-             </div>
-             <h3 className="text-2xl font-bold text-brand-navy">{warehouseStock} pcs</h3>
-          </div>
-        </>
-      )}
+          // দোকানের মোট স্টক
+          const shopStock = shopInventories
+            .filter(i => i.shop === shop.name)
+            .reduce((sum, i) => sum + i.stock, 0);
+
+          return (
+            <Link key={shop.id} href="/shop-inventory" className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-green-500 hover:shadow-md transition group flex flex-col justify-between h-full">
+              <div>
+                <div className="flex justify-between items-start mb-4">
+                  <div className="bg-green-50 p-3 rounded-xl">
+                    <Building2 size={28} className="text-green-600" />
+                  </div>
+                  <ChevronRight className="text-gray-300 group-hover:text-green-600 transition" />
+                </div>
+                <h3 className="text-xl font-bold text-brand-navy mb-1">{shop.name}</h3>
+                <p className="text-sm text-gray-500 mb-4">Shop Overview</p>
+              </div>
+              
+              <div className="space-y-2 mt-auto">
+                <div className="bg-green-50/50 p-2.5 rounded-lg border border-green-100 flex justify-between items-center">
+                  <div className="flex items-center gap-1.5 text-xs text-green-800 font-medium"><TrendingUp size={14}/> Today's Sales</div>
+                  <span className="font-bold text-green-700">৳{shopTodaySales}</span>
+                </div>
+                <div className="bg-blue-50/50 p-2.5 rounded-lg border border-blue-100 flex justify-between items-center">
+                  <div className="flex items-center gap-1.5 text-xs text-blue-800 font-medium"><Package size={14}/> Current Stock</div>
+                  <span className="font-bold text-blue-700">{shopStock} pcs</span>
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }
