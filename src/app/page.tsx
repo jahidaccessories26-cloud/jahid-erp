@@ -61,84 +61,79 @@ export default function Dashboard() {
 
   if (loading) return <div className="flex items-center justify-center h-screen font-bold text-brand-navy">Loading...</div>;
 
-  // ওয়্যারহাউসের মোট টাকার পরিমাণ (Stock * Cost Price)
+  // ওয়্যারহাউসের মোট টাকার পরিমাণ
   const warehouseValue = products.reduce((total, p) => {
     const prodValue = p.variations?.reduce((sum: number, v: any) => sum + ((v.stock || 0) * (v.costPrice || 0)), 0) || 0;
     return total + prodValue;
   }, 0);
 
-  // আজকের তারিখ
   const today = new Date().toISOString().split("T")[0];
-
-  // দোকান ফিল্টার (ম্যানেজার হলে শুধু নিজের দোকান)
   const visibleShops = userRole === "admin" ? shops : shops.filter(s => s.name === userShop);
 
   return (
     <div className="max-w-5xl mx-auto">
-      <div className="mb-6">
-        <h2 className="text-2xl md:text-3xl font-bold text-brand-navy">Welcome back, {userName}</h2>
-        <p className="text-gray-500 text-sm mt-1">Here is your business overview for today.</p>
+      <div className="mb-4">
+        <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Welcome, {userName}</h2>
+        <p className="text-gray-500 text-[11px] md:text-sm mt-0.5">Business overview for today.</p>
       </div>
 
-      {/* মোবাইলে ১ কলাম, বড় স্ক্রিনে ৩ কলাম */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* মোবাইলে ২ কলাম, কম্পিউটারে ৩ কলাম */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-4">
         
-        {/* ওয়্যারহাউস কার্ড (শুধু অ্যাডমিন দেখবে) */}
+        {/* ওয়্যারহাউস কার্ড */}
         {userRole === "admin" && (
-          <Link href="/warehouse" className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-brand-navy hover:shadow-md transition group flex flex-col justify-between h-full">
+          <Link href="/warehouse" className="bg-white p-3 md:p-5 rounded-xl shadow-sm border-t-4 border-brand-navy hover:shadow-md transition group flex flex-col justify-between h-full">
             <div>
-              <div className="flex justify-between items-start mb-4">
-                <div className="bg-brand-navy/10 p-3 rounded-xl">
-                  <Store size={24} className="text-brand-navy" />
+              <div className="flex justify-between items-start mb-2 md:mb-4">
+                <div className="bg-brand-navy/10 p-2 md:p-3 rounded-lg md:rounded-xl">
+                  <Store size={20} className="text-brand-navy md:hidden" />
+                  <Store size={24} className="text-brand-navy hidden md:block" />
                 </div>
-                <ChevronRight className="text-gray-300 group-hover:text-brand-navy transition" />
+                <ChevronRight size={16} className="text-gray-300 group-hover:text-brand-navy transition" />
               </div>
-              <h3 className="text-lg font-bold text-brand-navy mb-1">Warehouse</h3>
-              <p className="text-xs text-gray-500 mb-4">Main Storage & Stock</p>
+              <h3 className="text-sm md:text-lg font-bold text-brand-navy mb-0.5">Warehouse</h3>
+              <p className="text-[10px] md:text-xs text-gray-500 mb-2 md:mb-4">Main Storage</p>
             </div>
             
-            <div className="bg-gray-50 p-3 rounded-lg border border-gray-100 mt-auto">
-              <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-1">
-                <span className="text-xs text-gray-600">Total Stock Value:</span>
-                <span className="font-bold text-brand-navy text-lg">৳{warehouseValue.toLocaleString('en-IN')}</span>
-              </div>
+            <div className="bg-gray-50 p-2 rounded-lg border border-gray-100 mt-auto">
+              <span className="text-[10px] md:text-xs text-gray-600 block mb-0.5">Stock Value:</span>
+              <span className="font-bold text-brand-navy text-xs md:text-lg block truncate">৳{warehouseValue.toLocaleString('en-IN')}</span>
             </div>
           </Link>
         )}
 
         {/* দোকানের কার্ডসমূহ */}
         {visibleShops.map((shop) => {
-          // দোকানের আজকের সেলস
           const shopTodaySales = shopStatements
             .filter(s => s.shop === shop.name && s.type === "Sale" && s.date === today)
             .reduce((sum, s) => sum + s.amount, 0);
 
-          // দোকানের মোট স্টকের টাকার পরিমাণ (Stock * Cost Price)
           const shopStockValue = shopInventories
             .filter(i => i.shop === shop.name)
             .reduce((sum, i) => sum + ((i.stock || 0) * (i.costPrice || 0)), 0);
 
           return (
-            <Link key={shop.id} href="/shop-inventory" className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-green-500 hover:shadow-md transition group flex flex-col justify-between h-full">
+            <Link key={shop.id} href="/shop-inventory" className="bg-white p-3 md:p-5 rounded-xl shadow-sm border-t-4 border-green-500 hover:shadow-md transition group flex flex-col justify-between h-full">
               <div>
-                <div className="flex justify-between items-start mb-4">
-                  <div className="bg-green-50 p-3 rounded-xl">
-                    <Building2 size={24} className="text-green-600" />
+                <div className="flex justify-between items-start mb-2 md:mb-4">
+                  <div className="bg-green-50 p-2 md:p-3 rounded-lg md:rounded-xl">
+                    <Building2 size={20} className="text-green-600 md:hidden" />
+                    <Building2 size={24} className="text-green-600 hidden md:block" />
                   </div>
-                  <ChevronRight className="text-gray-300 group-hover:text-green-600 transition" />
+                  <ChevronRight size={16} className="text-gray-300 group-hover:text-green-600 transition" />
                 </div>
-                <h3 className="text-lg font-bold text-brand-navy mb-1">{shop.name}</h3>
-                <p className="text-xs text-gray-500 mb-4">Shop Overview</p>
+                <h3 className="text-sm md:text-lg font-bold text-brand-navy mb-0.5 leading-tight">{shop.name}</h3>
+                <p className="text-[10px] md:text-xs text-gray-500 mb-2 md:mb-4">Overview</p>
               </div>
               
-              <div className="space-y-2 mt-auto">
-                <div className="bg-green-50/50 p-2.5 rounded-lg border border-green-100 flex flex-col md:flex-row md:justify-between md:items-center gap-1">
-                  <div className="flex items-center gap-1.5 text-xs text-green-800 font-medium"><TrendingUp size={14}/> Today's Sales</div>
-                  <span className="font-bold text-green-700">৳{shopTodaySales.toLocaleString('en-IN')}</span>
+              <div className="space-y-1.5 md:space-y-2 mt-auto">
+                <div className="bg-green-50/50 p-2 rounded-lg border border-green-100">
+                  <div className="flex items-center gap-1 text-[9px] md:text-xs text-green-800 font-medium mb-0.5"><TrendingUp size={10}/> Sales</div>
+                  <span className="font-bold text-green-700 text-xs md:text-base block truncate">৳{shopTodaySales.toLocaleString('en-IN')}</span>
                 </div>
-                <div className="bg-blue-50/50 p-2.5 rounded-lg border border-blue-100 flex flex-col md:flex-row md:justify-between md:items-center gap-1">
-                  <div className="flex items-center gap-1.5 text-xs text-blue-800 font-medium"><Package size={14}/> Stock Value</div>
-                  <span className="font-bold text-blue-700">৳{shopStockValue.toLocaleString('en-IN')}</span>
+                <div className="bg-blue-50/50 p-2 rounded-lg border border-blue-100">
+                  <div className="flex items-center gap-1 text-[9px] md:text-xs text-blue-800 font-medium mb-0.5"><Package size={10}/> Stock</div>
+                  <span className="font-bold text-blue-700 text-xs md:text-base block truncate">৳{shopStockValue.toLocaleString('en-IN')}</span>
                 </div>
               </div>
             </Link>
