@@ -36,8 +36,11 @@ export default function BulkUploadPage() {
     const productsRef = collection(db, "products");
     const existingSnapshot = await getDocs(productsRef);
     
-    // এখানে doc.data() কে any হিসেবে কাস্ট করা হলো
-    const existingProducts: any[] = existingSnapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
+    // ডাবল কাস্টিং করা হলো যাতে টাইপ এরর ১০০% না আসে
+    const existingProducts: any[] = existingSnapshot.docs.map(doc => {
+      const data: any = doc.data();
+      return { id: doc.id, ...data };
+    });
 
     for (const line of lines) {
       const parts = line.split("\t").map(p => p.trim());
@@ -71,12 +74,12 @@ export default function BulkUploadPage() {
       
       if (!productName) productName = rawName;
 
+      // এখানে p: any ব্যবহার করা হলো
       const existingProduct = existingProducts.find((p: any) => 
         p.name && p.name.toLowerCase() === productName.toLowerCase() && 
         p.category === category
       );
 
-      // এখানে সেলিং প্রাইস বাদ দেওয়া হলো
       const newVariation = { 
         size, 
         color, 
