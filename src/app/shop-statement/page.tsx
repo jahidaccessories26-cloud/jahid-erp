@@ -3,18 +3,19 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, addDoc, onSnapshot, query, orderBy, doc, deleteDoc } from "firebase/firestore";
-import { PlusCircle, Trash2, DollarSign, TrendingDown, TrendingUp, Store } from "lucide-react";
+import { PlusCircle, Trash2, TrendingUp } from "lucide-react";
 
 export default function ShopStatementPage() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]); // প্রোডাক্ট লিস্ট
   const [loading, setLoading] = useState(true);
 
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     shop: "",
     type: "Sale", // Sale, Expense, Purchase, Party Payment
-    description: "",
+    description: "", // Sale হলে এখানে প্রোডাক্টের নাম বসবে
     amount: 0,
     date: new Date().toISOString().split("T")[0]
   });
@@ -29,13 +30,19 @@ export default function ShopStatementPage() {
       }
     });
 
+    // প্রোডাক্ট লিস্ট আনা
+    const qProducts = query(collection(db, "products"));
+    const unsubProducts = onSnapshot(qProducts, (snapshot) => {
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
     const qTrans = query(collection(db, "shop_statements"), orderBy("createdAt", "desc"));
     const unsubTrans = onSnapshot(qTrans, (snapshot) => {
       setTransactions(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
     });
 
-    return () => { unsubShops(); unsubTrans(); };
+    return () => { unsubShops(); unsubProducts(); unsubTrans(); };
   }, [formData.shop]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -74,12 +81,14 @@ export default function ShopStatementPage() {
   return (
     <div className="max-w-5xl mx-auto">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
-        <h2 className="text-2xl font-bold text-brand-navy">Daily Shop Statement</h2>
+        <h2 className="text-2xl font-bold text-brand-navy flex items-center gap-2">
+          <TrendingUp size={24} /> Daily Shop Statement
+        </h2>
         <button 
           onClick={() => setShowForm(!showForm)} 
           className="bg-brand-navy text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1"
         >
-          <PlusCircle size={16} /> Add Transaction
+          <PlusCircle size={16} /> {showForm ? "Close Form" : "Add Transaction"}
         </button>
       </div>
 
@@ -116,8 +125,29 @@ export default function ShopStatementPage() {
               <option value="Purchase">Direct Purchase</option>
               <option value="Party Payment">Party Payment</option>
             </select>
-            <input required placeholder="Description" className="border p-2 rounded-lg text-sm md:col-span-2" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} />
-            <input required type="number" placeholder="Amount" className="border p-2 rounded-lg text-sm" value={formData.amount || ""} onChange={(e) => setFormData({...formData, amount: Number(e.target.value)})} />
+
+            {/* টাইপ Sale হলে প্রোডাক্ট ড্রপডাউন দেখাবে, নাহলে টেক্সট ইনপুট */}
+            {formData.type === "Sale" ? (
+              <select 
+                required 
+                className="border p-2 rounded-lg text-sm md:col-span-2" 
+                value={formData.description} 
+                onChange={(e) => setFormData({...formData, description: e.target.value})}
+              >
+                <option value="" disabled>-- Select Product --</option>
+                {products.map((p: any) => (
+                  p.variations.map((v: any, i: number) => (
+                    <option key={`${p.id}-${i}`} value={`${p.name} (${v.size} / ${v.color})`}>
+                      {p.name} ({v.size} / {v.color})
+                    </option>
+                  ))
+                ))}
+              </select>
+            ) : (
+              <input required placeholder="Description" className="border p-2 rounded-lg text-sm md:col-span-2" value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})} />
+            )}
+
+            <input required type="number" placeholder="Amount (Tk)" className="border p-2 rounded-lg text-sm" value={formData.amount || ""} onChange={(e) => setFormData({...formData, amount: Number(e.target.value)})} />
             <input required type="date" className="border p-2 rounded-lg text-sm" value={formData.date} onChange={(e) => setFormData({...formData, date: e.target.value})} />
           </div>
           <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium text-sm">Save Transaction</button>
@@ -131,7 +161,7 @@ export default function ShopStatementPage() {
               <th className="px-4 py-3">Date</th>
               <th className="px-4 py-3">Shop</th>
               <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Description</th>
+              <th className="px-4 py-3">Description / Product</th>
               <th className="px-4 py-3 text-right">Amount</th>
               <th className="px-4 py-3 text-right">Action</th>
             </tr>
