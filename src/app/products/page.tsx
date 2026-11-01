@@ -36,8 +36,8 @@ export default function BulkUploadPage() {
     const productsRef = collection(db, "products");
     const existingSnapshot = await getDocs(productsRef);
     
-    // এখানে any[] যোগ করা হলো যাতে TypeScript আর এরর না দেয়
-    const existingProducts: any[] = existingSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    // এখানে doc.data() কে any হিসেবে কাস্ট করা হলো
+    const existingProducts: any[] = existingSnapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as any) }));
 
     for (const line of lines) {
       const parts = line.split("\t").map(p => p.trim());
@@ -71,8 +71,8 @@ export default function BulkUploadPage() {
       
       if (!productName) productName = rawName;
 
-      const existingProduct = existingProducts.find(p => 
-        p.name.toLowerCase() === productName.toLowerCase() && 
+      const existingProduct = existingProducts.find((p: any) => 
+        p.name && p.name.toLowerCase() === productName.toLowerCase() && 
         p.category === category
       );
 
@@ -86,8 +86,9 @@ export default function BulkUploadPage() {
 
       if (existingProduct) {
         await updateDoc(doc(db, "products", existingProduct.id), {
-          variations: [...existingProduct.variations, newVariation]
+          variations: [...(existingProduct.variations || []), newVariation]
         });
+        if (!existingProduct.variations) existingProduct.variations = [];
         existingProduct.variations.push(newVariation);
       } else {
         const newDocRef = await addDoc(collection(db, "products"), {
