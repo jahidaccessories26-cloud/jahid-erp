@@ -14,7 +14,7 @@ type Variation = {
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
+  const [dbCategories, setDbCategories] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   
   // সার্চ এবং ফিল্টার স্টেট
@@ -37,17 +37,18 @@ export default function ProductsPage() {
 
     const qCategories = query(collection(db, "categories"));
     const unsubCategories = onSnapshot(qCategories, (snapshot) => {
-      const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setCategories(data);
-      if (data.length > 0 && !category && !editingProduct) {
-        setCategory(data[0].name);
-      }
+      setDbCategories(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
     });
 
     return () => { unsubProducts(); unsubCategories(); };
-  }, [category, editingProduct]);
+  }, []);
 
-  // ফিল্টার এবং সার্চ লজিক
+  // ডেটাবেসের ক্যাটাগরি এবং প্রোডাক্টের ক্যাটাগরি—দুটো মিলিয়ে ইউনিক লিস্ট তৈরি
+  const allCategories = Array.from(new Set([
+    ...dbCategories.map(c => c.name),
+    ...products.map(p => p.category)
+  ])).filter(Boolean);
+
   const filteredProducts = products.filter((product) => {
     const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           product.category.toLowerCase().includes(searchTerm.toLowerCase());
@@ -83,8 +84,11 @@ export default function ProductsPage() {
   };
 
   const handleEdit = (product: any) => {
-    setEditingProduct(product); setName(product.name); setCategory(product.category);
-    setVariations(product.variations); setShowForm(true);
+    setEditingProduct(product); 
+    setName(product.name); 
+    setCategory(product.category);
+    setVariations(product.variations); 
+    setShowForm(true);
   };
 
   return (
@@ -120,8 +124,8 @@ export default function ProductsPage() {
             onChange={(e) => setFilterCategory(e.target.value)}
           >
             <option value="All">All Categories</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.name}>{cat.name}</option>
+            {allCategories.map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
             ))}
           </select>
         </div>
@@ -129,7 +133,6 @@ export default function ProductsPage() {
 
       {showForm && (
         <form onSubmit={handleSubmit} className="bg-white p-4 rounded-xl shadow-md border-t-4 border-brand-navy mb-6">
-          {/* ফর্মের আগের কোড... */}
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-lg font-bold text-brand-navy">{editingProduct ? "Edit Product" : "Add New Product"}</h3>
             <button type="button" onClick={() => { setShowForm(false); setEditingProduct(null); }} className="text-gray-400 hover:text-red-500"><X size={20}/></button>
@@ -144,7 +147,7 @@ export default function ProductsPage() {
               <label className="block text-xs font-medium mb-1">Category</label>
               <select required className="w-full border p-1.5 rounded-lg text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
                 <option value="" disabled>Select a Category</option>
-                {categories.map((cat) => <option key={cat.id} value={cat.name}>{cat.name}</option>)}
+                {allCategories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
               </select>
             </div>
           </div>
