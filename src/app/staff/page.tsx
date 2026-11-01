@@ -4,21 +4,25 @@ import { db, firebaseConfig } from "../../lib/firebase";
 import { initializeApp, deleteApp } from "firebase/app";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
 import { collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc } from "firebase/firestore";
-import { UserPlus, Edit, Trash2 } from "lucide-react";
+import { UserPlus, Edit, Trash2, X } from "lucide-react";
 
 export default function StaffPage() {
   const [staffList, setStaffList] = useState<any[]>([]);
-  const [shops, setShops] = useState<any[]>([]); // দোকানের লিস্ট
+  const [shops, setShops] = useState<any[]>([]);
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [name, setName] = useState(""); // নতুন নাম ফিল্ড
   const [role, setRole] = useState("manager");
-  const [assignedShop, setAssignedShop] = useState(""); // অ্যাসাইন করা দোকান
+  const [assignedShop, setAssignedShop] = useState("");
   
   const [message, setMessage] = useState("");
+  
+  // এডিট স্টেট
   const [editingStaff, setEditingStaff] = useState<any>(null);
+  const [editName, setEditName] = useState("");
   const [editRole, setEditRole] = useState("");
-  const [editShop, setEditShop] = useState(""); // এডিটের জন্য দোকান
+  const [editShop, setEditShop] = useState("");
 
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, "users"), (snapshot) => {
@@ -41,27 +45,29 @@ export default function StaffPage() {
       const secondaryAuth = getAuth(secondaryApp);
       await createUserWithEmailAndPassword(secondaryAuth, email, password);
       
-      // রোল এবং দোকান সেভ করা
+      // নাম, রোল এবং দোকান সেভ
       await setDoc(doc(db, "users", email), {
+        name: name, 
         email: email, 
         role: role, 
-        assignedShop: role === "manager" ? assignedShop : "All", // ম্যানেজার হলে দোকান, অ্যাডমিন হলে All
+        assignedShop: role === "manager" ? assignedShop : "All",
         createdAt: new Date().toISOString()
       });
 
       await secondaryAuth.signOut();
       await deleteApp(secondaryApp);
       
-      setMessage(`Success: ${email} added successfully.`);
-      setEmail(""); setPassword("");
+      setMessage(`Success: ${name} added successfully.`);
+      setEmail(""); setPassword(""); setName("");
     } catch (error: any) { setMessage(`Error: ${error.message}`); }
   };
 
-  // এডিট (রোল ও দোকান)
+  // এডিট সেভ
   const handleUpdateRole = async () => {
     if (!editingStaff) return;
     try {
       await updateDoc(doc(db, "users", editingStaff.email), { 
+        name: editName,
         role: editRole,
         assignedShop: editRole === "manager" ? editShop : "All"
       });
@@ -77,62 +83,53 @@ export default function StaffPage() {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <h2 className="text-3xl font-bold text-brand-navy mb-6">Staff Management</h2>
+      <h2 className="text-2xl font-bold text-brand-navy mb-4">Staff Management</h2>
       
-      <div className="bg-white p-6 rounded-xl shadow-md border-t-4 border-brand-navy mb-8">
-        <h3 className="text-lg font-bold mb-4 flex items-center gap-2"><UserPlus size={20} /> Add New Employee</h3>
-        {message && <p className={`mb-4 font-medium ${message.includes("Error") ? "text-red-500" : "text-green-600"}`}>{message}</p>}
+      <div className="bg-white p-4 rounded-xl shadow-md border-t-4 border-brand-navy mb-6">
+        <h3 className="text-base font-bold mb-3 flex items-center gap-2"><UserPlus size={18} /> Add New Employee</h3>
+        {message && <p className={`mb-3 text-sm font-medium ${message.includes("Error") ? "text-red-500" : "text-green-600"}`}>{message}</p>}
 
-        <form onSubmit={handleAddStaff} className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <form onSubmit={handleAddStaff} className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+          <input required type="text" placeholder="Full Name (e.g. Ripon)" className="border p-2 rounded-lg" value={name} onChange={(e) => setName(e.target.value)} />
           <input required type="email" placeholder="Email" className="border p-2 rounded-lg" value={email} onChange={(e) => setEmail(e.target.value)} />
           <input required type="password" placeholder="Password" className="border p-2 rounded-lg" value={password} onChange={(e) => setPassword(e.target.value)} />
           <select className="border p-2 rounded-lg" value={role} onChange={(e) => setRole(e.target.value)}>
-            <option value="manager">Manager</option>
-            <option value="merchandiser">Merchandiser</option>
+            <option value="manager">Manager (Shop)</option>
+            <option value="merchandiser">Merchandiser (Sample)</option>
             <option value="admin">Admin</option>
           </select>
           
-          {/* দোকান সিলেক্ট (ম্যানেজার হলে দেখাবে) */}
-          <select 
-            className={`border p-2 rounded-lg ${role !== 'manager' && 'opacity-50'}`} 
-            value={assignedShop} 
-            onChange={(e) => setAssignedShop(e.target.value)}
-            disabled={role !== 'manager'}
-          >
+          <select className={`border p-2 rounded-lg ${role !== 'manager' && 'opacity-50'}`} value={assignedShop} onChange={(e) => setAssignedShop(e.target.value)} disabled={role !== 'manager'}>
             {shops.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
           </select>
 
-          <button type="submit" className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-navy/90">Create</button>
+          <button type="submit" className="bg-brand-navy text-white px-4 py-2 rounded-lg font-medium hover:bg-brand-navy/90 md:col-span-2">Create Account</button>
         </form>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <table className="w-full text-left">
+        <table className="w-full text-left text-sm">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="px-6 py-4 font-semibold text-gray-600">Email</th>
-              <th className="px-6 py-4 font-semibold text-gray-600">Role</th>
-              <th className="px-6 py-4 font-semibold text-gray-600">Assigned Shop</th>
-              <th className="px-6 py-4 font-semibold text-gray-600 text-right">Action</th>
+              <th className="px-4 py-3 font-semibold text-gray-600">Name</th>
+              <th className="px-4 py-3 font-semibold text-gray-600">Email</th>
+              <th className="px-4 py-3 font-semibold text-gray-600">Role</th>
+              <th className="px-4 py-3 font-semibold text-gray-600">Shop</th>
+              <th className="px-4 py-3 font-semibold text-gray-600 text-right">Action</th>
             </tr>
           </thead>
           <tbody>
             {staffList.map((staff) => (
               <tr key={staff.id} className="border-b last:border-0 hover:bg-gray-50">
-                <td className="px-6 py-4 font-medium">{staff.email}</td>
-                <td className="px-6 py-4">
-                  <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold uppercase">{staff.role}</span>
+                <td className="px-4 py-3 font-bold text-brand-navy">{staff.name || "N/A"}</td>
+                <td className="px-4 py-3 text-gray-600">{staff.email}</td>
+                <td className="px-4 py-3"><span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold uppercase">{staff.role}</span></td>
+                <td className="px-4 py-3">
+                  {staff.role === "manager" ? <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-bold">{staff.assignedShop || "N/A"}</span> : <span className="text-gray-400 text-xs">N/A</span>}
                 </td>
-                <td className="px-6 py-4">
-                  {staff.role === "manager" ? (
-                    <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-bold">{staff.assignedShop || "Not Assigned"}</span>
-                  ) : (
-                    <span className="text-gray-400 text-xs">N/A</span>
-                  )}
-                </td>
-                <td className="px-6 py-4 text-right flex justify-end gap-2">
-                  <button onClick={() => { setEditingStaff(staff); setEditRole(staff.role); setEditShop(staff.assignedShop || ""); }} className="text-brand-navy bg-gray-100 p-2 rounded-lg"><Edit size={16}/></button>
-                  <button onClick={() => handleDelete(staff.id)} className="text-red-500 bg-red-50 p-2 rounded-lg"><Trash2 size={16}/></button>
+                <td className="px-4 py-3 text-right flex justify-end gap-2">
+                  <button onClick={() => { setEditingStaff(staff); setEditName(staff.name || ""); setEditRole(staff.role); setEditShop(staff.assignedShop || ""); }} className="text-brand-navy bg-gray-100 p-1.5 rounded-lg"><Edit size={16}/></button>
+                  <button onClick={() => handleDelete(staff.id)} className="text-red-500 bg-red-50 p-1.5 rounded-lg"><Trash2 size={16}/></button>
                 </td>
               </tr>
             ))}
@@ -140,26 +137,43 @@ export default function StaffPage() {
         </table>
       </div>
 
-      {/* Edit Role Modal */}
+      {/* Edit Modal */}
       {editingStaff && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-xl w-96">
-            <h3 className="font-bold mb-4">Edit Profile for {editingStaff.email}</h3>
-            <select className="w-full border p-2 rounded-lg mb-3" value={editRole} onChange={(e) => setEditRole(e.target.value)}>
-              <option value="manager">Manager</option>
-              <option value="merchandiser">Merchandiser</option>
-              <option value="admin">Admin</option>
-            </select>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-brand-navy">Edit Staff</h3>
+              <button onClick={() => setEditingStaff(null)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
+            </div>
             
-            {editRole === 'manager' && (
-              <select className="w-full border p-2 rounded-lg mb-4" value={editShop} onChange={(e) => setEditShop(e.target.value)}>
-                {shops.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-              </select>
-            )}
+            <div className="text-sm space-y-3">
+              <div>
+                <label className="block text-xs font-medium mb-1">Full Name</label>
+                <input className="w-full border p-2 rounded-lg" value={editName} onChange={(e) => setEditName(e.target.value)} />
+              </div>
+              
+              <div>
+                <label className="block text-xs font-medium mb-1">Role</label>
+                <select className="w-full border p-2 rounded-lg" value={editRole} onChange={(e) => setEditRole(e.target.value)}>
+                  <option value="manager">Manager</option>
+                  <option value="merchandiser">Merchandiser</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              
+              {editRole === 'manager' && (
+                <div>
+                  <label className="block text-xs font-medium mb-1">Assigned Shop</label>
+                  <select className="w-full border p-2 rounded-lg" value={editShop} onChange={(e) => setEditShop(e.target.value)}>
+                    {shops.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
 
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setEditingStaff(null)} className="px-4 py-2 border rounded-lg">Cancel</button>
-              <button onClick={handleUpdateRole} className="px-4 py-2 bg-brand-navy text-white rounded-lg">Update</button>
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={() => setEditingStaff(null)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
+              <button onClick={handleUpdateRole} className="px-4 py-2 bg-brand-navy text-white rounded-lg text-sm">Update</button>
             </div>
           </div>
         </div>
