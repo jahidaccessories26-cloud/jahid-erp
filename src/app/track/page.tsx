@@ -28,7 +28,7 @@ function TrackContent() {
   useEffect(() => {
     const fetchSample = async () => {
       if (!id) {
-        setMessage("No tracking ID provided!");
+        setMessage("No tracking ID provided in the URL.");
         setLoading(false);
         return;
       }
@@ -38,9 +38,12 @@ function TrackContent() {
         if (docSnap.exists()) {
           setSample({ id: docSnap.id, ...docSnap.data() });
         } else {
-          setMessage("Sample not found!");
+          setMessage("Sample not found! The link might be invalid.");
         }
-      } catch (error) { console.error(error); }
+      } catch (error) {
+        console.error("Error fetching sample:", error);
+        setMessage("Something went wrong while fetching data.");
+      }
       setLoading(false);
     };
     fetchSample();
@@ -75,11 +78,20 @@ function TrackContent() {
       setMessage(`Sample ${actionType} successfully!`);
       setActionType(null);
       setReviewerName(""); setReviewerDesignation(""); setReviewerPhone(""); setRejectReason("");
-    } catch (error) { alert("Something went wrong!"); }
+    } catch (error) { alert("Something went wrong! Please try again."); }
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center font-bold text-brand-navy">Loading...</div>;
-  if (!sample) return <div className="min-h-screen flex items-center justify-center text-red-500 font-bold text-center p-4">{message}</div>;
+  if (loading) return <div className="min-h-screen flex items-center justify-center font-bold text-brand-navy">Loading Tracking Data...</div>;
+  
+  if (!sample) return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="bg-white p-6 rounded-xl shadow-md text-center max-w-sm">
+        <XCircle size={40} className="text-red-500 mx-auto mb-3" />
+        <h2 className="text-lg font-bold text-gray-800 mb-2">Oops!</h2>
+        <p className="text-gray-600 text-sm">{message}</p>
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 flex justify-center items-start pt-10">
@@ -156,7 +168,7 @@ function TrackContent() {
 
               <div className="flex gap-2 mt-4">
                 <button type="button" onClick={() => setActionType(null)} className="flex-1 bg-gray-200 py-2 rounded-lg text-sm font-medium">Cancel</button>
-                <button type="submit" className={`flex-1 text-white py-2 rounded-lg text-sm font-medium ${actionType === 'Approved' ? 'bg-green-600' : 'bg-red-600'}`}>Confirm {actionType}</button>
+                <button type="submit" className={`flex-1 text-white py-2 rounded-lg text-sm font-medium ${actionType === 'Approved' ? 'bg-green-600' : 'bg-red-600'}`}>Confirm</button>
               </div>
             </form>
           )}
@@ -185,7 +197,7 @@ function TrackContent() {
   );
 }
 
-// Suspense দিয়ে র‍্যাপ করা হলো useSearchParams এর জন্য
+// Suspense দিয়ে র‍্যাপ করা হলো যাতে Next.js বিল্ড এরর না দেয়
 export default function TrackSamplePage() {
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center font-bold text-brand-navy">Loading...</div>}>
