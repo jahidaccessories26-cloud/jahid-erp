@@ -2,39 +2,67 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { History, Filter, ArrowDownRight, ArrowUpRight } from "lucide-react";
+import { History, ArrowDownRight, ArrowUpRight, Store, Building2 } from "lucide-react";
 
 export default function StockLogsPage() {
   const [logs, setLogs] = useState<any[]>([]);
-  const [filterType, setFilterType] = useState("All");
+  const [shops, setShops] = useState<any[]>([]);
+  const [selectedLocation, setSelectedLocation] = useState("All"); // 'All', 'Warehouse', বা দোকানের নাম
 
   useEffect(() => {
-    const q = query(collection(db, "stock_logs"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(q, (snapshot) => {
+    // লগ ডেটা আনা
+    const qLogs = query(collection(db, "stock_logs"), orderBy("createdAt", "desc"));
+    const unsubLogs = onSnapshot(qLogs, (snapshot) => {
       setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    return () => unsub();
+
+    // দোকানের লিস্ট আনা (ট্যাব তৈরি করার জন্য)
+    const qShops = query(collection(db, "shops"));
+    const unsubShops = onSnapshot(qShops, (snapshot) => {
+      setShops(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubLogs(); unsubShops(); };
   }, []);
 
-  const filteredLogs = logs.filter(log => filterType === "All" || log.type === filterType);
+  // লোকেশন অনুযায়ী ডেটা ফিল্টার
+  const filteredLogs = logs.filter(log => {
+    if (selectedLocation === "All") return true;
+    if (selectedLocation === "Warehouse") return log.shop === "Warehouse" || !log.shop; // ওয়্যারহাউসের লগ
+    return log.shop === selectedLocation; // নির্দিষ্ট দোকানের লগ
+  });
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <h2 className="text-2xl font-bold text-brand-navy flex items-center gap-2">
-          <History size={24} /> Stock History
-        </h2>
+      <h2 className="text-2xl font-bold text-brand-navy flex items-center gap-2 mb-4">
+        <History size={24} /> Stock History
+      </h2>
+
+      {/* লোকেশন ট্যাব */}
+      <div className="flex overflow-x-auto gap-2 mb-4 pb-2">
+        <button 
+          onClick={() => setSelectedLocation("All")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition ${selectedLocation === "All" ? "bg-brand-navy text-white" : "bg-white text-gray-600 border hover:bg-gray-50"}`}
+        >
+          All Locations
+        </button>
         
-        <div className="flex items-center gap-2 bg-white border p-2 rounded-lg shadow-sm w-full md:w-auto">
-          <Filter size={18} className="text-brand-navy" />
-          <select className="font-medium text-brand-navy outline-none bg-transparent cursor-pointer text-sm w-full" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
-            <option value="All">All Types</option>
-            <option value="Opening Stock">Opening Stock</option>
-            <option value="Transfer">Warehouse Transfer</option>
-            <option value="Corporate Delivery">Corporate Delivery</option>
-            <option value="POS Sale">POS Sale</option>
-          </select>
-        </div>
+        <button 
+          onClick={() => setSelectedLocation("Warehouse")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition flex items-center gap-1 ${selectedLocation === "Warehouse" ? "bg-brand-navy text-white" : "bg-white text-gray-600 border hover:bg-gray-50"}`}
+        >
+          <Building2 size={16} /> Warehouse
+        </button>
+
+        {shops.map((shop) => (
+          <button 
+            key={shop.id}
+            onClick={() => setSelectedLocation(shop.name)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition flex items-center gap-1 ${selectedLocation === shop.name ? "bg-brand-navy text-white" : "bg-white text-gray-600 border hover:bg-gray-50"}`}
+          >
+            <Store size={16} /> {shop.name}
+          </button>
+        ))}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -44,7 +72,6 @@ export default function StockLogsPage() {
               <tr>
                 <th className="px-4 py-3 font-semibold">Date & Time</th>
                 <th className="px-4 py-3 font-semibold">Type</th>
-                <th className="px-4 py-3 font-semibold">Shop/Ref</th>
                 <th className="px-4 py-3 font-semibold">Product Details</th>
                 <th className="px-4 py-3 font-semibold text-right">Qty</th>
               </tr>
@@ -52,7 +79,7 @@ export default function StockLogsPage() {
             <tbody>
               {filteredLogs.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="text-center py-8 text-gray-500">কোনো হিস্ট্রি পাওয়া যায়নি।</td>
+                  <td colSpan={4} className="text-center py-8 text-gray-500">এই লোকেশনে কোনো হিস্ট্রি পাওয়া যায়নি।</td>
                 </tr>
               )}
               {filteredLogs.map((log) => {
@@ -75,13 +102,9 @@ export default function StockLogsPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-brand-navy">{log.shop || "Warehouse"}</div>
-                      {log.challanNo && <div className="text-[10px] text-gray-500">Inv: {log.challanNo}</div>}
-                    </td>
-                    <td className="px-4 py-3">
                       <div className="font-medium text-gray-800">{log.productName}</div>
                       <div className="text-[10px] text-gray-500">{log.size} / {log.color}</div>
-                      {log.buyerName && <div className="text-[10px] text-gray-500">Buyer: {log.buyerName}</div>}
+                      {log.challanNo && <div className="text-[10px] text-brand-navy font-medium">Inv: {log.challanNo}</div>}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className={`font-bold flex items-center justify-end gap-1 ${isOutgoing ? 'text-red-600' : isIncoming ? 'text-green-600' : 'text-brand-navy'}`}>
