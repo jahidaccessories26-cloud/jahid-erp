@@ -82,7 +82,7 @@ export default function ProductsPage() {
 
   // এডিট ওপেন করার ফাংশন
   const openEdit = (product: any) => {
-    setEditData(JSON.parse(JSON.stringify(product))); // ডিপ কপি
+    setEditData(JSON.parse(JSON.stringify(product)));
     setShowEditModal(true);
   };
 
@@ -104,14 +104,14 @@ export default function ProductsPage() {
     }
   };
 
-  // ভ্যারিয়েশন (সাইজ/কালার) চেঞ্জ করার ফাংশন
+  // ভ্যারিয়েশন চেঞ্জ
   const handleVariationChange = (index: number, field: string, value: any) => {
     const newVariations = [...editData.variations];
     newVariations[index][field] = value;
     setEditData({ ...editData, variations: newVariations });
   };
 
-  // নতুন ভ্যারিয়েশন যোগ করার ফাংশন
+  // নতুন ভ্যারিয়েশন (সাইজ/কালার) যোগ
   const addVariation = () => {
     setEditData({
       ...editData,
@@ -119,13 +119,13 @@ export default function ProductsPage() {
     });
   };
 
-  // ভ্যারিয়েশন ডিলিট করার ফাংশন
+  // ভ্যারিয়েশন ডিলিট
   const removeVariation = (index: number) => {
     const newVariations = editData.variations.filter((_: any, i: number) => i !== index);
     setEditData({ ...editData, variations: newVariations });
   };
 
-  // পুরো প্রোডাক্ট ডিলিট করার ফাংশন
+  // পুরো প্রোডাক্ট ডিলিট
   const handleDeleteProduct = async (id: string, name: string) => {
     if (window.confirm(`আপনি কি নিশ্চিত "${name}" প্রোডাক্টটি ডিলিট করতে চান?`)) {
       try {
@@ -142,13 +142,13 @@ export default function ProductsPage() {
     <div className="max-w-6xl mx-auto pb-10">
       <div className="flex justify-between items-center mb-4 gap-2">
         <h2 className="text-2xl font-bold text-brand-navy">Products</h2>
-        <button onClick={downloadPDF} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 hover:bg-brand-navy/90 transition">
+        <button onClick={downloadPDF} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 hover:bg-brand-navy/90 transition shadow-sm">
           <Download size={16} /> PDF / Share
         </button>
       </div>
 
       {message && (
-        <div className={`p-3 mb-4 rounded-lg font-medium text-sm ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
+        <div className={`p-3 mb-4 rounded-lg font-medium text-sm shadow-sm ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
           {message}
         </div>
       )}
@@ -172,7 +172,7 @@ export default function ProductsPage() {
                 <div className="bg-brand-navy/10 p-1.5 rounded-lg"><Package className="text-brand-navy" size={20} /></div>
                 <div>
                   <h3 className="text-base font-bold text-brand-navy">{product.name}</h3>
-                  <span className="text-xs font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded">{product.category}</span>
+                  <span className="text-xs font-semibold bg-gray-100 text-gray-600 px-2 py-0.5 rounded border">{product.category}</span>
                 </div>
               </div>
               <div className="flex gap-1">
@@ -183,19 +183,19 @@ export default function ProductsPage() {
             
             <div className="flex-1 overflow-x-auto">
               <table className="w-full text-sm text-left">
-                <thead className="text-xs text-gray-500 uppercase bg-gray-50">
+                <thead className="text-xs text-gray-500 uppercase bg-gray-50 rounded-lg">
                   <tr>
-                    <th className="px-2 py-2">Size</th>
-                    <th className="px-2 py-2">Color</th>
+                    <th className="px-2 py-2 rounded-l-lg">Size/Color</th>
                     <th className="px-2 py-2 text-right">Stock</th>
-                    <th className="px-2 py-2 text-right">Cost</th>
+                    <th className="px-2 py-2 text-right rounded-r-lg">Cost</th>
                   </tr>
                 </thead>
                 <tbody>
                   {product.variations?.map((v: any, i: number) => (
                     <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="px-2 py-2 font-medium">{v.size || "Unknown"}</td>
-                      <td className="px-2 py-2">{v.color || "Unknown"}</td>
+                      <td className="px-2 py-2 font-medium">
+                        {v.size || "Unknown"} / {v.color || "Unknown"}
+                      </td>
                       <td className="px-2 py-2 text-right font-bold text-brand-navy">{v.stock}</td>
                       <td className="px-2 py-2 text-right text-gray-600">৳{v.costPrice || 0}</td>
                     </tr>
@@ -208,7 +208,7 @@ export default function ProductsPage() {
         {filteredProducts.length === 0 && <div className="col-span-2 text-center py-10 text-gray-500">কোনো প্রোডাক্ট পাওয়া যায়নি।</div>}
       </div>
 
-      {/* ✅ এডিট মডাল (পপ-আপ) */}
+      {/* ✅ নতুন এডিট মডাল (পপ-আপ) */}
       {showEditModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -221,36 +221,41 @@ export default function ProductsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium mb-1">Product Name</label>
-                  <input required className="w-full border p-2 rounded-lg text-sm" value={editData.name} onChange={(e) => setEditData({...editData, name: e.target.value})} />
+                  <input required className="w-full border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white" value={editData.name} onChange={(e) => setEditData({...editData, name: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1">Category</label>
-                  <input required className="w-full border p-2 rounded-lg text-sm" value={editData.category} onChange={(e) => setEditData({...editData, category: e.target.value})} />
+                  <input required className="w-full border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white" value={editData.category} onChange={(e) => setEditData({...editData, category: e.target.value})} />
                 </div>
               </div>
 
               <div className="mt-4">
                 <div className="flex justify-between items-center mb-2">
                   <label className="block text-sm font-bold text-gray-700">Variations (Size/Color)</label>
-                  <button type="button" onClick={addVariation} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-lg flex items-center gap-1 hover:bg-blue-100"><PlusCircle size={14}/> Add</button>
+                  <button type="button" onClick={addVariation} className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-100 font-medium transition"><PlusCircle size={14}/> Add Size/Color</button>
                 </div>
                 
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
                   {editData.variations?.map((v: any, i: number) => (
-                    <div key={i} className="flex gap-2 items-center bg-gray-50 p-2 rounded-lg border">
-                      <input placeholder="Size" className="w-1/4 border p-1.5 rounded text-sm" value={v.size} onChange={(e) => handleVariationChange(i, 'size', e.target.value)} />
-                      <input placeholder="Color" className="w-1/4 border p-1.5 rounded text-sm" value={v.color} onChange={(e) => handleVariationChange(i, 'color', e.target.value)} />
-                      <input placeholder="Stock" type="number" className="w-1/4 border p-1.5 rounded text-sm" value={v.stock} onChange={(e) => handleVariationChange(i, 'stock', Number(e.target.value))} />
-                      <input placeholder="Cost (৳)" type="number" className="w-1/4 border p-1.5 rounded text-sm" value={v.costPrice} onChange={(e) => handleVariationChange(i, 'costPrice', Number(e.target.value))} />
-                      <button type="button" onClick={() => removeVariation(i)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                    <div key={i} className="flex flex-col md:flex-row gap-2 items-center bg-gray-50 p-3 rounded-lg border border-gray-200">
+                      <div className="flex w-full gap-2">
+                        <input placeholder="Size (e.g. 10/1)" className="w-1/2 border p-2 rounded-lg text-sm" value={v.size} onChange={(e) => handleVariationChange(i, 'size', e.target.value)} />
+                        <input placeholder="Color (e.g. Grey)" className="w-1/2 border p-2 rounded-lg text-sm" value={v.color} onChange={(e) => handleVariationChange(i, 'color', e.target.value)} />
+                      </div>
+                      <div className="flex w-full gap-2 items-center">
+                        <input placeholder="Stock" type="number" className="w-1/3 border p-2 rounded-lg text-sm" value={v.stock} onChange={(e) => handleVariationChange(i, 'stock', Number(e.target.value))} />
+                        <input placeholder="Cost (৳)" type="number" className="w-1/3 border p-2 rounded-lg text-sm" value={v.costPrice} onChange={(e) => handleVariationChange(i, 'costPrice', Number(e.target.value))} />
+                        <button type="button" onClick={() => removeVariation(i)} className="w-1/3 flex justify-center text-red-500 hover:bg-red-50 p-2 rounded-lg border border-red-100 transition"><Trash2 size={18}/></button>
+                      </div>
                     </div>
                   ))}
+                  {editData.variations?.length === 0 && <p className="text-sm text-gray-400 text-center py-2">কোনো সাইজ নেই। "Add Size/Color" চাপুন।</p>}
                 </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t mt-4">
-                <button type="button" onClick={() => setShowEditModal(false)} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">Update Product</button>
+                <button type="button" onClick={() => setShowEditModal(false)} className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50">Cancel</button>
+                <button type="submit" className="px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 shadow-sm transition">Save Changes</button>
               </div>
             </form>
           </div>
