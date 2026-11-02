@@ -2,211 +2,146 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
-import { collection, addDoc, onSnapshot, query, orderBy, doc, updateDoc } from "firebase/firestore";
-import { PlusCircle, Box, Trash2, Edit, X, Search, Filter } from "lucide-react";
-
-type Variation = {
-  size: string;
-  color: string;
-  stock: number;
-  costPrice: number;
-};
+import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from "firebase/firestore";
+import { Package, Search, Edit, Trash2, X, PlusCircle } from "lucide-react";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
-  const [dbCategories, setDbCategories] = useState<any[]>([]);
-  const [showForm, setShowForm] = useState(false);
-  
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterCategory, setFilterCategory] = useState("All");
-
-  const [name, setName] = useState("");
-  const [category, setCategory] = useState(""); 
-  const [variations, setVariations] = useState<Variation[]>([
-    { size: "", color: "", stock: 0, costPrice: 0 }
-  ]);
-
-  const [editingProduct, setEditingProduct] = useState<any>(null);
+  
+  // এডিট মডাল স্টেট
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editData, setEditData] = useState<any>({ id: "", name: "", category: "", variations: [] });
+  
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
-    const qProducts = query(collection(db, "products"), orderBy("createdAt", "desc"));
-    const unsubProducts = onSnapshot(qProducts, (snapshot) => {
-      setProducts(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    const unsub = onSnapshot(query(collection(db, "products"), orderBy("createdAt", "desc")), (snapshot) => {
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-
-    const qCategories = query(collection(db, "categories"));
-    const unsubCategories = onSnapshot(qCategories, (snapshot) => {
-      setDbCategories(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-    });
-
-    return () => { unsubProducts(); unsubCategories(); };
+    return () => unsub();
   }, []);
 
-  const allCategories = Array.from(new Set([
-    ...dbCategories.map(c => c.name),
-    ...products.map(p => p.category)
-  ])).filter(Boolean);
+  const filteredProducts = products.filter(p => 
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
 
-  const filteredProducts = products.filter((product) => {
-    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                          product.category.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = filterCategory === "All" || product.category === filterCategory;
-    return matchesSearch && matchesCategory;
-  });
-
-  const addVariation = () => setVariations([...variations, { size: "", color: "", stock: 0, costPrice: 0 }]);
-  
-  const updateVariation = (index: number, field: keyof Variation, value: string | number) => {
-    const newVariations = [...variations];
-    newVariations[index] = { ...newVariations[index], [field]: value };
-    setVariations(newVariations);
+  // এডিট ওপেন করার ফাংশন
+  const openEdit = (product: any) => {
+    setEditData(JSON.parse(JSON.stringify(product))); // ডিপ কপি
+    setShowEditModal(true);
   };
 
-  const removeVariation = (index: number) => setVariations(variations.filter((_, i) => i !== index));
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  // এডিট সেভ করার ফাংশন
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!category) { alert("ক্যাটাগরি সিলেক্ট করুন!"); return; }
-
     try {
-      if (editingProduct) {
-        await updateDoc(doc(db, "products", editingProduct.id), { name, category, variations });
-        alert("Success: প্রোডাক্ট আপডেট হয়েছে!");
-      } else {
-        await addDoc(collection(db, "products"), { name, category, variations, createdAt: new Date().toISOString() });
-        alert("Success: নতুন প্রোডাক্ট সেভ হয়েছে!");
-      }
-      setName(""); setVariations([{ size: "", color: "", stock: 0, costPrice: 0 }]);
-      setShowForm(false); setEditingProduct(null);
-    } catch (error) { alert("প্রোডাক্ট সেভ করতে সমস্যা হয়েছে!"); }
+      const productRef = doc(db, "products", editData.id);
+      await updateDoc(productRef, {
+        name: editData.name,
+        category: editData.category,
+        variations: editData.variations
+      });
+      setMessage("Success: প্রোডাক্ট সফলভাবে আপডেট হয়েছে!");
+      setShowEditModal(false);
+      setTimeout(() => setMessage(""), 3000);
+    } catch (error) {
+      setMessage("Error: আপডেট করতে সমস্যা হয়েছে!");
+    }
   };
 
-  const handleEdit = (product: any) => {
-    setEditingProduct(product); 
-    setName(product.name); 
-    setCategory(product.category);
-    setVariations(product.variations); 
-    setShowForm(true);
+  // ভ্যারিয়েশন (সাইজ/কালার) চেঞ্জ করার ফাংশন
+  const handleVariationChange = (index: number, field: string, value: any) => {
+    const newVariations = [...editData.variations];
+    newVariations[index][field] = value;
+    setEditData({ ...editData, variations: newVariations });
+  };
+
+  // নতুন ভ্যারিয়েশন যোগ করার ফাংশন
+  const addVariation = () => {
+    setEditData({
+      ...editData,
+      variations: [...editData.variations, { size: "", color: "", stock: 0, costPrice: 0 }]
+    });
+  };
+
+  // ভ্যারিয়েশন ডিলিট করার ফাংশন
+  const removeVariation = (index: number) => {
+    const newVariations = editData.variations.filter((_: any, i: number) => i !== index);
+    setEditData({ ...editData, variations: newVariations });
+  };
+
+  // পুরো প্রোডাক্ট ডিলিট করার ফাংশন
+  const handleDeleteProduct = async (id: string, name: string) => {
+    if (window.confirm(`আপনি কি নিশ্চিত "${name}" প্রোডাক্টটি ডিলিট করতে চান?`)) {
+      try {
+        await deleteDoc(doc(db, "products", id));
+        setMessage("Success: প্রোডাক্ট ডিলিট হয়েছে!");
+        setTimeout(() => setMessage(""), 3000);
+      } catch (error) {
+        setMessage("Error: ডিলিট করতে সমস্যা হয়েছে!");
+      }
+    }
   };
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-3">
-        <h2 className="text-2xl font-bold text-brand-navy">Product Catalog</h2>
-        <button 
-          onClick={() => { setShowForm(!showForm); setEditingProduct(null); setName(""); setVariations([{ size: "", color: "", stock: 0, costPrice: 0 }]); }}
-          className="bg-brand-navy text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-brand-navy/90 transition flex items-center gap-1 w-full md:w-auto justify-center"
-        >
-          <PlusCircle size={16} /> {showForm ? "Close Form" : "Add New Product"}
-        </button>
+    <div className="max-w-6xl mx-auto pb-10">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-bold text-brand-navy">Products</h2>
       </div>
 
-      <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-2">
-        <div className="flex-1 flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg">
-          <Search size={16} className="text-gray-400" />
-          <input 
-            type="text" 
-            placeholder="Search by product name or category..." 
-            className="w-full bg-transparent outline-none text-sm"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+      {message && (
+        <div className={`p-3 mb-4 rounded-lg font-medium text-sm ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>
+          {message}
         </div>
-        
-        <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg md:w-64">
-          <Filter size={16} className="text-gray-400" />
-          <select 
-            className="w-full bg-transparent outline-none text-sm font-medium text-brand-navy cursor-pointer"
-            value={filterCategory}
-            onChange={(e) => setFilterCategory(e.target.value)}
-          >
-            <option value="All">All Categories</option>
-            {allCategories.map((cat) => (
-              <option key={cat} value={cat}>{cat}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {showForm && (
-        <form onSubmit={handleSubmit} className="bg-white p-4 rounded-xl shadow-md border-t-4 border-brand-navy mb-6">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="text-lg font-bold text-brand-navy">{editingProduct ? "Edit Product" : "Add New Product"}</h3>
-            <button type="button" onClick={() => { setShowForm(false); setEditingProduct(null); }} className="text-gray-400 hover:text-red-500"><X size={20}/></button>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-            <div>
-              <label className="block text-xs font-medium mb-1">Product Name</label>
-              <input required placeholder="e.g. Dressing" className="w-full border p-1.5 rounded-lg text-sm" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1">Category</label>
-              <select required className="w-full border p-1.5 rounded-lg text-sm" value={category} onChange={(e) => setCategory(e.target.value)}>
-                <option value="" disabled>Select a Category</option>
-                {allCategories.map((cat) => <option key={cat} value={cat}>{cat}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="mb-3">
-            <h4 className="text-sm font-semibold text-gray-700 mb-2 border-b pb-1">Variations (Size, Color, Stock, Cost)</h4>
-            
-            {variations.map((v, index) => (
-              <div key={index} className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2 items-end bg-gray-50 p-2 rounded-lg border">
-                <div><label className="text-[10px] font-medium text-gray-500">Size</label><input required placeholder="10 cm" className="w-full border p-1 rounded text-xs" value={v.size} onChange={(e) => updateVariation(index, "size", e.target.value)} /></div>
-                <div><label className="text-[10px] font-medium text-gray-500">Color</label><input required placeholder="Red" className="w-full border p-1 rounded text-xs" value={v.color} onChange={(e) => updateVariation(index, "color", e.target.value)} /></div>
-                <div><label className="text-[10px] font-medium text-gray-500">Stock</label><input required type="number" placeholder="100" className="w-full border p-1 rounded text-xs" value={v.stock || ""} onChange={(e) => updateVariation(index, "stock", Number(e.target.value))} /></div>
-                <div className="flex gap-1 items-end">
-                  <div className="flex-1"><label className="text-[10px] font-medium text-gray-500">Cost</label><input required type="number" placeholder="50" className="w-full border p-1 rounded text-xs" value={v.costPrice || ""} onChange={(e) => updateVariation(index, "costPrice", Number(e.target.value))} /></div>
-                  <button type="button" onClick={() => removeVariation(index)} className="text-red-500 hover:bg-red-50 p-1 rounded mb-0.5"><Trash2 size={14} /></button>
-                </div>
-              </div>
-            ))}
-            
-            <button type="button" onClick={addVariation} className="text-brand-navy text-xs font-medium hover:underline flex items-center gap-1 mt-1">
-              <PlusCircle size={14} /> Add Size/Color
-            </button>
-          </div>
-
-          <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded-lg font-medium text-sm w-full md:w-auto mt-2">
-            {editingProduct ? "Update Product" : "Save Product"}
-          </button>
-        </form>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {filteredProducts.length === 0 && <p className="text-gray-500 text-center col-span-2 py-4">কোনো প্রোডাক্ট পাওয়া যায়নি।</p>}
-        
-        {filteredProducts.map((product) => (
-          <div key={product.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col relative">
-            <button onClick={() => handleEdit(product)} className="absolute top-3 right-3 bg-gray-100 text-gray-500 p-1.5 rounded-lg hover:bg-brand-navy hover:text-white transition">
-              <Edit size={14} />
-            </button>
+      <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
+        <Search size={18} className="text-gray-400 ml-2" />
+        <input 
+          type="text" 
+          placeholder="Search product or category..." 
+          className="w-full bg-transparent outline-none text-sm py-1" 
+          value={searchTerm} 
+          onChange={(e) => setSearchTerm(e.target.value)} 
+        />
+      </div>
 
-            <div className="flex items-center gap-2 mb-2 border-b pb-2 pr-8">
-              <div className="bg-brand-navy/10 p-1.5 rounded-lg"><Box className="text-brand-navy" size={18} /></div>
-              <div>
-                <h3 className="text-sm font-bold text-brand-navy">{product.name}</h3>
-                <span className="text-[10px] font-semibold bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded">{product.category}</span>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {filteredProducts.map((product) => (
+          <div key={product.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
+            <div className="flex justify-between items-start mb-3 border-b pb-2">
+              <div className="flex items-center gap-2">
+                <div className="bg-brand-navy/10 p-1.5 rounded-lg"><Package className="text-brand-navy" size={20} /></div>
+                <div>
+                  <h3 className="text-base font-bold text-brand-navy">{product.name}</h3>
+                  <span className="text-xs font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded">{product.category}</span>
+                </div>
+              </div>
+              <div className="flex gap-1">
+                <button onClick={() => openEdit(product)} className="bg-blue-50 text-blue-600 p-2 rounded-lg hover:bg-blue-100 transition"><Edit size={16} /></button>
+                <button onClick={() => handleDeleteProduct(product.id, product.name)} className="bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100 transition"><Trash2 size={16} /></button>
               </div>
             </div>
             
             <div className="flex-1 overflow-x-auto">
-              <table className="w-full text-xs text-left">
-                <thead className="text-[10px] text-gray-500 uppercase bg-gray-50">
+              <table className="w-full text-sm text-left">
+                <thead className="text-xs text-gray-500 uppercase bg-gray-50">
                   <tr>
-                    <th className="px-1 py-1">Size</th><th className="px-1 py-1">Color</th>
-                    <th className="px-1 py-1 text-right">Stock</th><th className="px-1 py-1 text-right">Cost</th>
+                    <th className="px-2 py-2">Size</th>
+                    <th className="px-2 py-2">Color</th>
+                    <th className="px-2 py-2 text-right">Stock</th>
+                    <th className="px-2 py-2 text-right">Cost</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {product.variations.map((v: Variation, i: number) => (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className="px-1 py-1.5 font-medium">{v.size}</td>
-                      <td className="px-1 py-1.5">{v.color}</td>
-                      <td className="px-1 py-1.5 text-right font-semibold text-brand-navy">{v.stock}</td>
-                      <td className="px-1 py-1.5 text-right text-gray-500">৳{v.costPrice}</td>
+                  {product.variations?.map((v: any, i: number) => (
+                    <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                      <td className="px-2 py-2 font-medium">{v.size || "Unknown"}</td>
+                      <td className="px-2 py-2">{v.color || "Unknown"}</td>
+                      <td className="px-2 py-2 text-right font-bold text-brand-navy">{v.stock}</td>
+                      <td className="px-2 py-2 text-right text-gray-600">৳{v.costPrice || 0}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -214,7 +149,57 @@ export default function ProductsPage() {
             </div>
           </div>
         ))}
+        {filteredProducts.length === 0 && <div className="col-span-2 text-center py-10 text-gray-500">কোনো প্রোডাক্ট পাওয়া যায়নি।</div>}
       </div>
+
+      {/* ✅ এডিট মডাল (পপ-আপ) */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+              <h3 className="text-lg font-bold text-brand-navy">Edit Product</h3>
+              <button onClick={() => setShowEditModal(false)} className="p-1 rounded-lg hover:bg-gray-100"><X size={20} /></button>
+            </div>
+            
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Product Name</label>
+                  <input required className="w-full border p-2 rounded-lg text-sm" value={editData.name} onChange={(e) => setEditData({...editData, name: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Category</label>
+                  <input required className="w-full border p-2 rounded-lg text-sm" value={editData.category} onChange={(e) => setEditData({...editData, category: e.target.value})} />
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-bold text-gray-700">Variations (Size/Color)</label>
+                  <button type="button" onClick={addVariation} className="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded-lg flex items-center gap-1 hover:bg-blue-100"><PlusCircle size={14}/> Add</button>
+                </div>
+                
+                <div className="space-y-2">
+                  {editData.variations?.map((v: any, i: number) => (
+                    <div key={i} className="flex gap-2 items-center bg-gray-50 p-2 rounded-lg border">
+                      <input placeholder="Size" className="w-1/4 border p-1.5 rounded text-sm" value={v.size} onChange={(e) => handleVariationChange(i, 'size', e.target.value)} />
+                      <input placeholder="Color" className="w-1/4 border p-1.5 rounded text-sm" value={v.color} onChange={(e) => handleVariationChange(i, 'color', e.target.value)} />
+                      <input placeholder="Stock" type="number" className="w-1/4 border p-1.5 rounded text-sm" value={v.stock} onChange={(e) => handleVariationChange(i, 'stock', Number(e.target.value))} />
+                      <input placeholder="Cost (৳)" type="number" className="w-1/4 border p-1.5 rounded text-sm" value={v.costPrice} onChange={(e) => handleVariationChange(i, 'costPrice', Number(e.target.value))} />
+                      <button type="button" onClick={() => removeVariation(i)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+                <button type="button" onClick={() => setShowEditModal(false)} className="px-4 py-2 border rounded-lg text-sm hover:bg-gray-50">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">Update Product</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
