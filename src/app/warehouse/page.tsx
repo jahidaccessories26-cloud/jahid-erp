@@ -2,8 +2,13 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
 import { db, auth } from "../../lib/firebase";
-import { collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc, increment, getDoc, setDoc } from "firebase/firestore";
-import { Package, Search, Edit, X, PlusCircle, ShoppingCart, Trash2, Factory, History, User, Filter, Calendar, Check, ChevronUp, ChevronDown } from "lucide-react";
+import {
+  collection, onSnapshot, query, orderBy, doc, updateDoc, addDoc,
+  increment, getDoc, setDoc, deleteDoc, runTransaction,
+} from "firebase/firestore";
+import { Package, Search, Edit, X, PlusCircle, ShoppingCart, Trash2, Factory, History, User, Filter, Calendar, Check, ChevronUp, ChevronDown, Download } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function WarehousePage() {
   const [products, setProducts] = useState<any[]>([]);
@@ -19,7 +24,8 @@ export default function WarehousePage() {
 
   // হিস্ট্রি ফিল্টার
   const [historyShopFilter, setHistoryShopFilter] = useState("All");
-  const [historyDateFilter, setHistoryDateFilter] = useState("");
+  const [historyStartDate, setHistoryStartDate] = useState("");
+  const [historyEndDate, setHistoryEndDate] = useState("");
 
   // ইউজার ডেটা
   const [currentUserName, setCurrentUserName] = useState("Admin");
@@ -27,14 +33,18 @@ export default function WarehousePage() {
   // প্রোডাকশন স্টেট
   const [showProdModal, setShowProdModal] = useState(false);
   const [prodData, setProdData] = useState({ productName: "", category: "", size: "", color: "", qty: "", costPrice: "" });
-  
+
   // সাজেশন স্টেট
   const [showSuggestions, setShowSuggestions] = useState(false);
   const suggestionRef = useRef<HTMLDivElement>(null);
 
-  // এডিট স্টেট
+  // এডিট স্টেট (প্রোডাক্ট)
   const [showEditModal, setShowEditModal] = useState(false);
   const [editData, setEditData] = useState({ productId: "", varIndex: -1, newStock: 0, newPrice: 0 });
+
+  // এডিট/ডিলিট স্টেট (হিস্ট্রি লেনদেনের জন্য)
+  const [showLogEditModal, setShowLogEditModal] = useState(false);
+  const [editLogData, setEditLogData] = useState({ logId: "", newQty: 0, newTotalPrice: 0, oldQty: 0, shop: "", productName: "", size: "", color: "", type: "" });
 
   const [message, setMessage] = useState("");
 
@@ -76,14 +86,14 @@ export default function WarehousePage() {
     };
     document.addEventListener("mousedown", handleClickOutside);
 
-    return () => { 
-      unsubAuth(); unsubProducts(); unsubCategories(); unsubShops(); unsubTransfers(); 
+    return () => {
+      unsubAuth(); unsubProducts(); unsubCategories(); unsubShops(); unsubTransfers();
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [selectedShop]);
 
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const filteredProducts = products.filter(p =>
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
@@ -93,11 +103,65 @@ export default function WarehousePage() {
 
   const filteredHistory = transfers.filter(t => {
     const matchShop = historyShopFilter === "All" || t.shop === historyShopFilter;
-    const matchDate = historyDateFilter ? t.date?.startsWith(historyDateFilter) : true;
+    let matchDate = true;
+    if (t.createdAt) {
+      const logDate = t.createdAt.split('T')[0];
+      if (historyStartDate && logDate < historyStartDate) matchDate = false;
+      if (historyEndDate && logDate > historyEndDate) matchDate = false;
+    } else {
+      matchDate = false;
+    }
     return matchShop && matchDate;
   });
 
   const totalPcs = cart.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+
+  const downloadPDF = async () => {
+    if (filteredHistory.length === 0) {
+      alert("ডাউনলোড করার জন্য কোনো ডেটা নেই!");
+      return;
+    }
+
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text("786 Jahid Accessories - Warehouse Report", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Shop: ${historyShopFilter === "All" ? "All Shops" : historyShopFilter}`, 14, 22);
+    doc.text(`Date: ${historyStartDate || "Start"} to ${historyEndDate || "Today"}`, 14, 28);
+
+    const tableData = filteredHistory.map(log => [
+      new Date(log.createdAt).toLocaleDateString(),
+      log.productName,
+      `${log.size}/${log.color}`,
+      log.quantity,
+      `৳${log.totalPrice || 0}`,
+      log.shop,
+      log.transferredBy || "System"
+    ]);
+
+    autoTable(doc, {
+      head: [['Date', 'Product', 'Size/Color', 'Qty', 'Total Price', 'Destination', 'By']],
+      body: tableData,
+      startY: 35,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [31, 45, 92] },
+    });
+
+    const pdfBlob = doc.output('blob');
+    const file = new File([pdfBlob], `Warehouse_Report_${Date.now()}.pdf`, { type: 'application/pdf' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: 'Warehouse Report',
+          text: 'Here is the warehouse stock report from 786 Jahid Accessories.',
+        });
+      } catch (error) { console.log('Share canceled or failed', error); }
+    } else {
+      doc.save(`Warehouse_Report_${Date.now()}.pdf`);
+    }
+  };
 
   const addToCart = (product: any, varIndex: number) => {
     const variation = product.variations[varIndex];
@@ -144,8 +208,6 @@ export default function WarehousePage() {
         const product = products.find(p => p.id === item.productId);
         const variation = product.variations[item.varIndex];
         const qty = Number(item.qty);
-        
-        // টোটাল দাম বের করা হচ্ছে
         const totalPrice = qty * (variation.costPrice || 0);
 
         const updatedVariations = [...product.variations];
@@ -165,11 +227,18 @@ export default function WarehousePage() {
           });
         }
 
-        // stock_logs এ এখন totalPrice সেভ হবে
         await addDoc(collection(db, "stock_logs"), {
-          shop: selectedShop, productName: product.name, size: variation.size, color: variation.color,
-          quantity: qty, totalPrice: totalPrice, type: "Warehouse Transfer", transferredBy: currentUserName,
-          date: new Date().toISOString(), createdAt: new Date().toISOString()
+          shop: selectedShop,
+          productId: product.id,               // ✅ future-proof edit/delete
+          productName: product.name,
+          size: variation.size,
+          color: variation.color,
+          quantity: qty,
+          totalPrice: totalPrice,
+          type: "Warehouse Transfer",
+          transferredBy: currentUserName,
+          date: new Date().toISOString(),
+          createdAt: new Date().toISOString()
         });
       }
       setMessage(`Success: ${cart.length} টি আইটেম ${selectedShop}-এ পাঠানো হয়েছে!`);
@@ -183,12 +252,15 @@ export default function WarehousePage() {
     const { productName, category, size, color, qty, costPrice } = prodData;
     const numQty = Number(qty);
     const numCost = Number(costPrice) || 0;
-    
+
     if (!productName || !category || !size || !color || numQty <= 0) { setMessage("Error: সব তথ্য সঠিকভাবে দিন!"); return; }
 
     try {
       let existingProduct = products.find(p => p.name.toLowerCase() === productName.toLowerCase() && p.category === category);
+      let productId: string;
+
       if (existingProduct) {
+        productId = existingProduct.id;
         let updatedVariations = [...(existingProduct.variations || [])];
         const existingIndex = updatedVariations.findIndex(v => v.size === size && v.color === color);
         if (existingIndex >= 0) {
@@ -199,16 +271,19 @@ export default function WarehousePage() {
         }
         await updateDoc(doc(db, "products", existingProduct.id), { variations: updatedVariations });
       } else {
-        await addDoc(collection(db, "products"), {
+        const newProdRef = await addDoc(collection(db, "products"), {
           name: productName, category: category,
           variations: [{ size, color, stock: numQty, costPrice: numCost }],
           createdAt: new Date().toISOString()
         });
+        productId = newProdRef.id;
       }
 
       await addDoc(collection(db, "stock_logs"), {
+        productId: productId,                  // ✅ future-proof edit/delete
         shop: "Warehouse", productName, size, color,
-        quantity: numQty, totalPrice: numQty * numCost, type: "Production Inward", transferredBy: currentUserName,
+        quantity: numQty, totalPrice: numQty * numCost, type: "Production Inward",
+        transferredBy: currentUserName,
         date: new Date().toISOString(), createdAt: new Date().toISOString()
       });
 
@@ -218,6 +293,7 @@ export default function WarehousePage() {
     } catch (error) { setMessage("প্রোডাকশন যোগ করতে সমস্যা হয়েছে!"); }
   };
 
+  // প্রোডাক্টের স্টক/দাম সরাসরি এডিট
   const handleEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     const { productId, varIndex, newStock, newPrice } = editData;
@@ -234,61 +310,258 @@ export default function WarehousePage() {
     } catch (error) { setMessage("আপডেট করতে সমস্যা হয়েছে!"); }
   };
 
+  // ------------------------------------------------------------------
+  // হেল্পার: লগের প্রোডাক্ট খুঁজে বের করা (productId আগে, না থাকলে fallback)
+  // ------------------------------------------------------------------
+  const resolveProductInTransaction = async (transaction: any, logData: any) => {
+    let productRef: any = null;
+    let product: any = null;
+
+    if (logData.productId) {
+      productRef = doc(db, "products", logData.productId);
+      const snap = await transaction.get(productRef);
+      if (snap.exists()) product = { id: snap.id, ...snap.data() };
+    }
+
+    if (!product) {
+      // Fallback: state থেকে name + size + color মিলিয়ে খোঁজা
+      const found = products.find(p =>
+        p.name === logData.productName &&
+        (p.variations || []).some((v: any) => v.size === logData.size && v.color === logData.color)
+      );
+      if (found) {
+        productRef = doc(db, "products", found.id);
+        const snap = await transaction.get(productRef);
+        if (snap.exists()) product = { id: snap.id, ...snap.data() };
+      }
+    }
+
+    return { product, productRef };
+  };
+
+  // ------------------------------------------------------------------
+  // EDIT history log (atomic: products + shop_inventories + stock_logs)
+  // ------------------------------------------------------------------
+  const handleLogEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const { logId, newQty, newTotalPrice } = editLogData;
+
+    if (newQty <= 0) {
+      alert("পরিমাণ ০ এর বেশি হতে হবে!");
+      return;
+    }
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        // ১. লগ রিড
+        const logRef = doc(db, "stock_logs", logId);
+        const logSnap = await transaction.get(logRef);
+        if (!logSnap.exists()) throw new Error("Stock log not found");
+        const logData = logSnap.data();
+
+        const diffQty = Number(newQty) - Number(logData.quantity); // + = বাড়ানো, - = কমানো
+
+        // ২. প্রোডাক্ট খোঁজা
+        const { product, productRef } = await resolveProductInTransaction(transaction, logData);
+        if (!product) throw new Error("Product not found");
+
+        const variations = [...(product.variations || [])];
+        const varIndex = variations.findIndex((v: any) => v.size === logData.size && v.color === logData.color);
+        if (varIndex < 0) throw new Error("Variation not found");
+
+        if (logData.type === "Warehouse Transfer") {
+          // ওয়্যারহাউস: diff>0 হলে স্টক কমবে, diff<0 হলে বাড়বে
+          const newWhStock = (variations[varIndex].stock || 0) - diffQty;
+          if (newWhStock < 0) throw new Error("Warehouse stock insufficient for this increase");
+          variations[varIndex].stock = newWhStock;
+          transaction.update(productRef, { variations });
+
+          // দোকান: diff>0 হলে বাড়বে, diff<0 হলে কমবে
+          const shopInvId = `${logData.shop}_${product.id}_${logData.size}_${logData.color}`.replace(/\s+/g, "_");
+          const shopInvRef = doc(db, "shop_inventories", shopInvId);
+          const shopInvSnap = await transaction.get(shopInvRef);
+
+          if (shopInvSnap.exists()) {
+            transaction.update(shopInvRef, { stock: increment(diffQty) });
+          } else if (diffQty > 0) {
+            transaction.set(shopInvRef, {
+              shop: logData.shop,
+              productName: logData.productName,
+              category: product.category || "",
+              size: logData.size,
+              color: logData.color,
+              stock: diffQty,
+              costPrice: variations[varIndex].costPrice || 0,
+            });
+          }
+        } else if (logData.type === "Production Inward") {
+          // প্রোডাকশন: diff>0 হলে ওয়্যারহাউস স্টক বাড়বে, diff<0 হলে কমবে
+          const newWhStock = (variations[varIndex].stock || 0) + diffQty;
+          if (newWhStock < 0) throw new Error("Warehouse stock insufficient for this decrease");
+          variations[varIndex].stock = newWhStock;
+          transaction.update(productRef, { variations });
+        }
+
+        // ৩. লগ আপডেট
+        transaction.update(logRef, {
+          quantity: Number(newQty),
+          totalPrice: Number(newTotalPrice),
+        });
+      });
+
+      setMessage("Success: লেনদেন সফলভাবে আপডেট হয়েছে!");
+      setShowLogEditModal(false);
+    } catch (error: any) {
+      console.error(error);
+      setMessage(`Error: ${error?.message || "আপডেট করতে সমস্যা হয়েছে!"}`);
+    }
+  };
+
+  // ------------------------------------------------------------------
+  // DELETE history log (atomic)
+  // ------------------------------------------------------------------
+  const handleLogDelete = async () => {
+    if (!confirm("আপনি কি নিশ্চিত এই লেনদেনটি ডিলিট করতে চান? (ডিলিট করলে স্টক আগের অবস্থায় ফিরে যাবে)")) return;
+
+    const { logId } = editLogData;
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const logRef = doc(db, "stock_logs", logId);
+        const logSnap = await transaction.get(logRef);
+        if (!logSnap.exists()) throw new Error("Stock log not found");
+        const logData = logSnap.data();
+        const qty = Number(logData.quantity);
+
+        const { product, productRef } = await resolveProductInTransaction(transaction, logData);
+
+        if (logData.type === "Warehouse Transfer") {
+          if (!product) throw new Error("Product not found");
+
+          // ওয়্যারহাউস স্টকে ফেরত যোগ
+          const variations = [...(product.variations || [])];
+          const varIndex = variations.findIndex((v: any) => v.size === logData.size && v.color === logData.color);
+          if (varIndex < 0) throw new Error("Variation not found");
+          variations[varIndex].stock = (variations[varIndex].stock || 0) + qty;
+          transaction.update(productRef, { variations });
+
+          // দোকানের স্টক থেকে বিয়োগ
+          const shopInvId = `${logData.shop}_${product.id}_${logData.size}_${logData.color}`.replace(/\s+/g, "_");
+          const shopInvRef = doc(db, "shop_inventories", shopInvId);
+          const shopInvSnap = await transaction.get(shopInvRef);
+          if (shopInvSnap.exists()) {
+            const current = shopInvSnap.data().stock || 0;
+            transaction.update(shopInvRef, { stock: Math.max(0, current - qty) });
+          }
+        } else if (logData.type === "Production Inward") {
+          if (!product) throw new Error("Product not found");
+
+          // প্রোডাকশন হলে ওয়্যারহাউস থেকে বাদ
+          const variations = [...(product.variations || [])];
+          const varIndex = variations.findIndex((v: any) => v.size === logData.size && v.color === logData.color);
+          if (varIndex < 0) throw new Error("Variation not found");
+          variations[varIndex].stock = Math.max(0, (variations[varIndex].stock || 0) - qty);
+          transaction.update(productRef, { variations });
+        }
+
+        // লগ ডিলিট
+        transaction.delete(logRef);
+      });
+
+      setMessage("Success: লেনদেন ডিলিট হয়েছে!");
+      setShowLogEditModal(false);
+    } catch (error: any) {
+      console.error(error);
+      setMessage(`Error: ${error?.message || "ডিলিট করতে সমস্যা হয়েছে!"}`);
+    }
+  };
+
   return (
     <div className={`max-w-6xl mx-auto ${cart.length > 0 ? "pb-24" : "pb-6"}`}>
       <div className="flex justify-between items-center mb-4">
         <h2 className="text-2xl font-bold text-brand-navy">Warehouse Stock</h2>
         <button onClick={() => { setProdData({ productName: "", category: "", size: "", color: "", qty: "", costPrice: "" }); setShowProdModal(true); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1">
-          <Factory size={16}/> Add Production
+          <Factory size={16} /> Add Production
         </button>
       </div>
 
       {message && <div className={`p-3 mb-4 rounded-lg font-medium text-sm ${message.includes("Error") ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"}`}>{message}</div>}
 
-      {/* ট্রান্সফার হিস্ট্রি */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
-        <div className="p-3 border-b bg-gray-50 flex flex-col md:flex-row justify-between md:items-center gap-2">
-          <h3 className="font-bold text-gray-700 text-sm flex items-center gap-2"><History size={16}/> Recent Activities</h3>
-          <div className="flex gap-2">
-            <div className="flex items-center gap-1 bg-white border rounded-lg px-2 py-1">
-              <Filter size={14} className="text-gray-400" />
-              <select className="text-xs font-medium outline-none bg-transparent" value={historyShopFilter} onChange={(e) => setHistoryShopFilter(e.target.value)}>
-                <option value="All">All Shops</option>
-                {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-              </select>
+        <div className="p-3 border-b bg-gray-50 flex flex-col gap-3">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-gray-700 text-sm flex items-center gap-2"><History size={16} /> Recent Activities</h3>
+            <button onClick={downloadPDF} className="bg-brand-navy text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-brand-navy/90">
+              <Download size={14} /> PDF / Share
+            </button>
+          </div>
+
+          <div className="flex flex-col md:flex-row gap-2">
+            <select className="text-xs font-medium outline-none bg-white border rounded-lg px-2 py-1.5 flex-1" value={historyShopFilter} onChange={(e) => setHistoryShopFilter(e.target.value)}>
+              <option value="All">All Shops</option>
+              {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+            </select>
+            <div className="flex items-center gap-1 bg-white border rounded-lg px-2 py-1 flex-1">
+              <span className="text-[10px] text-gray-500 font-bold">From</span>
+              <input type="date" className="text-xs outline-none bg-transparent w-full" value={historyStartDate} onChange={(e) => setHistoryStartDate(e.target.value)} />
             </div>
-            <div className="flex items-center gap-1 bg-white border rounded-lg px-2 py-1">
-              <Calendar size={14} className="text-gray-400" />
-              <input type="date" className="text-xs outline-none bg-transparent" value={historyDateFilter} onChange={(e) => setHistoryDateFilter(e.target.value)} />
+            <div className="flex items-center gap-1 bg-white border rounded-lg px-2 py-1 flex-1">
+              <span className="text-[10px] text-gray-500 font-bold">To</span>
+              <input type="date" className="text-xs outline-none bg-transparent w-full" value={historyEndDate} onChange={(e) => setHistoryEndDate(e.target.value)} />
             </div>
           </div>
         </div>
-        <div className="overflow-x-auto max-h-60">
-          <table className="w-full text-left text-sm min-w-[600px]">
-            <thead className="bg-gray-100 text-gray-600">
-              <tr>
-                <th className="px-3 py-2">Date</th>
-                <th className="px-3 py-2">Product</th>
-                <th className="px-3 py-2 text-center">Qty</th>
-                <th className="px-3 py-2 text-right">Total ৳</th>
-                <th className="px-3 py-2">Destination</th>
-                <th className="px-3 py-2 text-right">By</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredHistory.length === 0 && <tr><td colSpan={6} className="text-center py-4 text-gray-500">কোনো লেনদেন নেই।</td></tr>}
-              {filteredHistory.map(log => (
-                <tr key={log.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-3 py-2 text-gray-500"><div className="font-medium text-gray-800">{new Date(log.createdAt).toLocaleDateString()}</div></td>
-                  <td className="px-3 py-2"><span className="font-bold text-brand-navy">{log.productName}</span><br/><span className="text-[11px] text-gray-500">{log.size}/{log.color}</span></td>
-                  <td className="px-3 py-2 text-center font-bold text-green-600">{log.type === "Warehouse Transfer" ? "-" : "+"}{log.quantity}</td>
-                  <td className="px-3 py-2 text-right font-bold text-brand-navy">৳{log.totalPrice || 0}</td>
-                  <td className="px-3 py-2 font-medium text-brand-navy">{log.shop}</td>
-                  <td className="px-3 py-2 text-right text-[11px] text-gray-600 flex items-center justify-end gap-1"><User size={12}/> {log.transferredBy || "System"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+        <div className="p-3 bg-gray-50 space-y-2 max-h-80 overflow-y-auto">
+          {filteredHistory.length === 0 && <div className="text-center py-4 text-gray-500 text-sm">কোনো লেনদেন নেই।</div>}
+          {filteredHistory.map(log => (
+            <div key={log.id} className="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex flex-col gap-2 relative">
+
+              <div className="absolute top-2 right-2 flex gap-1">
+                <button
+                  onClick={() => {
+                    setEditLogData({
+                      logId: log.id,
+                      newQty: log.quantity,
+                      newTotalPrice: log.totalPrice || 0,
+                      oldQty: log.quantity,
+                      shop: log.shop,
+                      productName: log.productName,
+                      size: log.size,
+                      color: log.color,
+                      type: log.type
+                    });
+                    setShowLogEditModal(true);
+                  }}
+                  className="text-blue-500 bg-blue-50 hover:bg-blue-100 p-1.5 rounded-md"
+                >
+                  <Edit size={14} />
+                </button>
+              </div>
+
+              <div className="flex justify-between items-start border-b pb-2 pr-8">
+                <div>
+                  <span className="font-bold text-brand-navy text-sm">{log.productName}</span>
+                  <span className="text-[11px] text-gray-500 block">{log.size}/{log.color}</span>
+                </div>
+                <div className="text-right">
+                  <span className={`font-bold text-sm ${log.type === "Warehouse Transfer" ? "text-red-600" : "text-green-600"}`}>
+                    {log.type === "Warehouse Transfer" ? "-" : "+"}{log.quantity} pcs
+                  </span>
+                  <span className="text-[11px] text-gray-600 block font-bold">৳{log.totalPrice || 0}</span>
+                </div>
+              </div>
+              <div className="flex justify-between items-center text-[11px] text-gray-600">
+                <div className="flex flex-col">
+                  <span className="font-medium text-gray-800">Date: {new Date(log.createdAt).toLocaleDateString()}</span>
+                  <span>By: {log.transferredBy || "System"}</span>
+                </div>
+                <div className="text-right">
+                  <span className="bg-gray-100 px-2 py-1 rounded font-medium">{log.shop}</span>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -307,7 +580,7 @@ export default function WarehousePage() {
                 <span className="text-xs font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded">{product.category}</span>
               </div>
             </div>
-            
+
             <div className="flex-1 overflow-x-auto">
               <table className="w-full text-sm text-left mb-3">
                 <thead className="text-xs text-gray-500 uppercase bg-gray-50">
@@ -334,7 +607,6 @@ export default function WarehousePage() {
         ))}
       </div>
 
-      {/* Collapsible Cart Bottom Sheet */}
       {cart.length > 0 && (
         <>
           {cartOpen && (
@@ -402,7 +674,6 @@ export default function WarehousePage() {
         </>
       )}
 
-      {/* প্রোডাকশন মডাল */}
       {showProdModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
@@ -410,28 +681,28 @@ export default function WarehousePage() {
             <form onSubmit={handleProduction} className="space-y-3">
               <div className="relative" ref={suggestionRef}>
                 <label className="block text-xs font-medium mb-1">Product Name (Type New or Old)</label>
-                <input required placeholder="e.g. Cotton Tube" className="w-full border p-2 rounded-lg text-sm" value={prodData.productName} onChange={(e) => { setProdData({...prodData, productName: e.target.value}); setShowSuggestions(true); }} onFocus={() => setShowSuggestions(true)} />
+                <input required placeholder="e.g. Cotton Tube" className="w-full border p-2 rounded-lg text-sm" value={prodData.productName} onChange={(e) => { setProdData({ ...prodData, productName: e.target.value }); setShowSuggestions(true); }} onFocus={() => setShowSuggestions(true)} />
                 {showSuggestions && prodData.productName && filteredSuggestions.length > 0 && (
                   <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-32 overflow-y-auto">
                     {filteredSuggestions.map(name => (
-                      <div key={name} className="p-2 text-sm hover:bg-blue-50 cursor-pointer" onClick={() => { setProdData({...prodData, productName: name}); setShowSuggestions(false); }}>{name}</div>
+                      <div key={name} className="p-2 text-sm hover:bg-blue-50 cursor-pointer" onClick={() => { setProdData({ ...prodData, productName: name }); setShowSuggestions(false); }}>{name}</div>
                     ))}
                   </div>
                 )}
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1">Category</label>
-                <select required className="w-full border p-2 rounded-lg text-sm" value={prodData.category} onChange={(e) => setProdData({...prodData, category: e.target.value})}>
+                <select required className="w-full border p-2 rounded-lg text-sm" value={prodData.category} onChange={(e) => setProdData({ ...prodData, category: e.target.value })}>
                   <option value="" disabled>-- Select Category --</option>
                   {allCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div><label className="block text-xs font-medium mb-1">Size</label><input required placeholder="e.g. 5 MM" className="w-full border p-2 rounded-lg text-sm" value={prodData.size} onChange={(e) => setProdData({...prodData, size: e.target.value})} /></div>
-                <div><label className="block text-xs font-medium mb-1">Color</label><input required placeholder="e.g. Black" className="w-full border p-2 rounded-lg text-sm" value={prodData.color} onChange={(e) => setProdData({...prodData, color: e.target.value})} /></div>
+                <div><label className="block text-xs font-medium mb-1">Size</label><input required placeholder="e.g. 5 MM" className="w-full border p-2 rounded-lg text-sm" value={prodData.size} onChange={(e) => setProdData({ ...prodData, size: e.target.value })} /></div>
+                <div><label className="block text-xs font-medium mb-1">Color</label><input required placeholder="e.g. Black" className="w-full border p-2 rounded-lg text-sm" value={prodData.color} onChange={(e) => setProdData({ ...prodData, color: e.target.value })} /></div>
               </div>
-              <div><label className="block text-xs font-medium mb-1">Production Quantity (pcs)</label><input required type="number" min="1" className="w-full border p-2 rounded-lg text-sm font-bold" value={prodData.qty} onChange={(e) => setProdData({...prodData, qty: e.target.value})} /></div>
-              <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input type="number" min="0" className="w-full border p-2 rounded-lg text-sm" value={prodData.costPrice} onChange={(e) => setProdData({...prodData, costPrice: e.target.value})} /></div>
+              <div><label className="block text-xs font-medium mb-1">Production Quantity (pcs)</label><input required type="number" min="1" className="w-full border p-2 rounded-lg text-sm font-bold" value={prodData.qty} onChange={(e) => setProdData({ ...prodData, qty: e.target.value })} /></div>
+              <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input type="number" min="0" className="w-full border p-2 rounded-lg text-sm" value={prodData.costPrice} onChange={(e) => setProdData({ ...prodData, costPrice: e.target.value })} /></div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowProdModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">Add to Stock</button>
@@ -441,17 +712,62 @@ export default function WarehousePage() {
         </div>
       )}
 
-      {/* এডিট মডাল */}
+      {/* এডিট মডাল (প্রোডাক্ট) */}
       {showEditModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm">
             <h3 className="text-lg font-bold text-brand-navy mb-4">Edit Warehouse Stock</h3>
             <form onSubmit={handleEdit} className="space-y-3">
-              <div><label className="block text-xs font-medium mb-1">New Stock</label><input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newStock} onChange={(e) => setEditData({...editData, newStock: Number(e.target.value)})} /></div>
-              <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newPrice} onChange={(e) => setEditData({...editData, newPrice: Number(e.target.value)})} /></div>
+              <div><label className="block text-xs font-medium mb-1">New Stock</label><input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newStock} onChange={(e) => setEditData({ ...editData, newStock: Number(e.target.value) })} /></div>
+              <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newPrice} onChange={(e) => setEditData({ ...editData, newPrice: Number(e.target.value) })} /></div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowEditModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded-lg text-sm">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ এডিট + ডিলিট মডাল (হিস্ট্রি লেনদেনের জন্য) */}
+      {showLogEditModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm">
+            <h3 className="text-lg font-bold text-brand-navy mb-2">Edit History</h3>
+            <p className="text-xs text-gray-500 mb-4">{editLogData.productName} ({editLogData.size}/{editLogData.color}) - {editLogData.shop}</p>
+
+            <form onSubmit={handleLogEdit} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium mb-1">New Quantity (পরিমাণ)</label>
+                <input
+                  required
+                  type="number"
+                  min="1"
+                  className="w-full border p-2 rounded-lg font-bold"
+                  value={editLogData.newQty}
+                  onChange={(e) => setEditLogData({ ...editLogData, newQty: Number(e.target.value) })}
+                />
+                <p className="text-[10px] text-gray-400 mt-1">(পরিমাণ বাড়ালে বা কমালে ওয়্যারহাউস ও দোকানের স্টক অটোমেটিক আপডেট হবে)</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">New Total Price (৳)</label>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  className="w-full border p-2 rounded-lg font-bold"
+                  value={editLogData.newTotalPrice}
+                  onChange={(e) => setEditLogData({ ...editLogData, newTotalPrice: Number(e.target.value) })}
+                />
+              </div>
+              <div className="flex justify-between gap-2 pt-3 border-t mt-2">
+                <button type="button" onClick={handleLogDelete} className="px-3 py-2 bg-red-100 text-red-600 rounded-lg text-sm font-bold hover:bg-red-200">
+                  ডিলিট করুন
+                </button>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setShowLogEditModal(false)} className="px-3 py-2 border rounded-lg text-sm">Cancel</button>
+                  <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded-lg text-sm">Save</button>
+                </div>
               </div>
             </form>
           </div>
