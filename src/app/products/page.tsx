@@ -3,7 +3,9 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from "firebase/firestore";
-import { Package, Search, Edit, Trash2, X, PlusCircle } from "lucide-react";
+import { Package, Search, Edit, Trash2, X, PlusCircle, Download } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<any[]>([]);
@@ -26,6 +28,57 @@ export default function ProductsPage() {
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
     (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  // ✅ PDF এবং শেয়ার ফাংশন
+  const downloadPDF = async () => {
+    if (filteredProducts.length === 0) {
+      alert("ডাউনলোড করার জন্য কোনো প্রোডাক্ট নেই!");
+      return;
+    }
+
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text("786 Jahid Accessories - Product List", 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Total Products: ${filteredProducts.length}`, 14, 22);
+
+    const tableData = [];
+    filteredProducts.forEach(p => {
+      p.variations?.forEach((v: any) => {
+        tableData.push([
+          p.category || "N/A",
+          p.name || "N/A",
+          v.size || "-",
+          v.color || "-",
+          v.stock || 0,
+          `৳${v.costPrice || 0}`
+        ]);
+      });
+    });
+
+    autoTable(doc, {
+      head: [['Category', 'Product', 'Size', 'Color', 'Stock', 'Rate']],
+      body: tableData,
+      startY: 30,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [31, 45, 92] },
+    });
+
+    const pdfBlob = doc.output('blob');
+    const file = new File([pdfBlob], `Product_List_${Date.now()}.pdf`, { type: 'application/pdf' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: 'Product List',
+          text: 'Here is the product list from 786 Jahid Accessories.',
+        });
+      } catch (error) { console.log('Share canceled', error); }
+    } else {
+      doc.save(`Product_List_${Date.now()}.pdf`);
+    }
+  };
 
   // এডিট ওপেন করার ফাংশন
   const openEdit = (product: any) => {
@@ -87,8 +140,11 @@ export default function ProductsPage() {
 
   return (
     <div className="max-w-6xl mx-auto pb-10">
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex justify-between items-center mb-4 gap-2">
         <h2 className="text-2xl font-bold text-brand-navy">Products</h2>
+        <button onClick={downloadPDF} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 hover:bg-brand-navy/90 transition">
+          <Download size={16} /> PDF / Share
+        </button>
       </div>
 
       {message && (
