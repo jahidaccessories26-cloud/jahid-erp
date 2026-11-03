@@ -2,9 +2,9 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db, auth } from "../../lib/firebase";
-import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, increment } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, increment, deleteDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X } from "lucide-react";
+import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Search, Filter, Edit, Trash2 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -12,11 +12,19 @@ export default function ShopDashboardPage() {
   const router = useRouter();
   
   const [userRole, setUserRole] = useState("admin");
-  const [selectedShop, setSelectedShop] = useState(""); // ডিফল্টে খালি থাকবে
+  const [selectedShop, setSelectedShop] = useState("");
+  const [shops, setShops] = useState<any[]>([]);
   
-  const [shops, setShops] = useState<any[]>([]); // দোকানের লিস্ট রাখার জন্য
   const [shopInventories, setShopInventories] = useState<any[]>([]);
   const [shopStatements, setShopStatements] = useState<any[]>([]);
+  
+  // সার্চ ও ফিল্টার
+  const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+
+  // এডিট স্টেট
+  const [editingItem, setEditingItem] = useState<any>(null);
+  const [editData, setEditData] = useState({ productName: "", category: "", size: "", color: "", stock: 0, costPrice: 0 });
 
   // অ্যাড প্রোডাক্ট স্টেট
   const [showAddModal, setShowAddModal] = useState(false);
@@ -32,7 +40,6 @@ export default function ShopDashboardPage() {
           const docSnap = await getDoc(doc(db, "users", user.email));
           if (docSnap.exists()) {
             setUserRole(docSnap.data().role || "manager");
-            // ম্যানেজার হলে তার অ্যাসাইন করা দোকান সেট হবে
             if (docSnap.data().assignedShop) {
               setSelectedShop(docSnap.data().assignedShop);
             }
@@ -43,13 +50,11 @@ export default function ShopDashboardPage() {
     return () => unsubAuth();
   }, []);
 
-  // ✅ নতুন লজিক: অ্যাডমিনের জন্য দোকানের লিস্ট লোড করা এবং ডিফল্ট দোকান সিলেক্ট করা
+  // দোকান লোড
   useEffect(() => {
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
       setShops(data);
-      
-      // যদি অ্যাডমিন হয় এবং কোনো দোকান সিলেক্ট করা না থাকে, তবে প্রথম দোকানটা অটো সিলেক্ট হবে
       if (data.length > 0 && !selectedShop) {
         setSelectedShop(data[0].name);
       }
@@ -57,7 +62,7 @@ export default function ShopDashboardPage() {
     return () => unsubShops();
   }, [selectedShop]);
 
-  // ডেটা লোড (দোকান সিলেক্ট হলে)
+  // ডেটা লোড
   useEffect(() => {
     if (!selectedShop) return;
 
@@ -74,38 +79,42 @@ export default function ShopDashboardPage() {
     return () => { unsubInv(); unsubStatements(); };
   }, [selectedShop]);
 
-  // আজকের হিসাব
   const todayStr = new Date().toISOString().split("T")[0];
   const todaySales = shopStatements.filter(s => s.type === 'Sales' && s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
   const todayExpense = shopStatements.filter(s => s.type === 'Expense' && s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
   const todayPurchase = shopStatements.filter(s => s.type === 'Purchase' && s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
   const profitLoss = todaySales - (todayExpense + todayPurchase);
 
-  // টোটাল ভ্যালু
   let totalStockValue = 0;
-  shopInventories.forEach(item => {
-    totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0);
-  });
+  
+  // ✅ লিস্ট ফিল্টারিং
+  const categories = Array.from(new Set(shopInventories.map(item => item.category).filter(Boolean)));
+  const displayList = shopInventories
+    .filter(item => {
+      const searchLower = searchTerm.toLowerCase();
+      const matchSearch = (item.productName || "").toLowerCase().includes(searchLower) || 
+                          (item.size || "").toLowerCase().includes(searchLower) ||
+                          (item.color || "").toLowerCase().includes(searchLower);
+      const matchCategory = categoryFilter === "All" || item.category === categoryFilter;
+      return matchSearch && matchCategory;
+    })
+    .map(item => {
+      const itemValue = (Number(item.stock) || 0) * (Number(item.costPrice) || 0);
+      totalStockValue += itemValue;
+      return { ...item, itemValue };
+    });
 
-  // PDF ডাউনলোড ফাংশন
+  // PDF
   const downloadPDF = async () => {
-    if (shopInventories.length === 0) {
-      alert("ডাউনলোড করার জন্য কোনো ডেটা নেই!");
-      return;
-    }
+    if (displayList.length === 0) { alert("ডাউনলোড করার জন্য কোনো ডেটা নেই!"); return; }
     const doc = new jsPDF();
     doc.setFontSize(16);
     doc.text(`Stock Report - ${selectedShop}`, 14, 15);
     doc.setFontSize(10);
     doc.text(`Total Value: BDT ${totalStockValue.toLocaleString('en-IN')}`, 14, 22);
 
-    const tableData = shopInventories.map(item => [
-      item.productName, 
-      item.size === "Unknown" ? "-" : (item.size || "-"), 
-      item.color === "Unknown" ? "-" : (item.color || "-"), 
-      item.stock, 
-      `BDT ${item.costPrice}`, 
-      `BDT ${((item.stock || 0) * (item.costPrice || 0)).toLocaleString('en-IN')}`
+    const tableData = displayList.map(item => [
+      item.productName, item.size === "Unknown" ? "-" : (item.size || "-"), item.color === "Unknown" ? "-" : (item.color || "-"), item.stock, `BDT ${item.costPrice}`, `BDT ${item.itemValue.toLocaleString('en-IN')}`
     ]);
 
     autoTable(doc, {
@@ -126,10 +135,10 @@ export default function ShopDashboardPage() {
     }
   };
 
-  // নতুন প্রোডাক্ট অ্যাড ফাংশন
+  // অ্যাড প্রোডাক্ট
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedShop) { alert("দোকান সিলেক্ট করা নেই!"); return; }
+    if (!selectedShop) return;
     try {
       const shopInvId = `${selectedShop}_${addData.productName}_${addData.size}_${addData.color}`.replace(/\s+/g, '_').replace(/\//g, '-');
       const invRef = doc(db, "shop_inventories", shopInvId);
@@ -137,27 +146,40 @@ export default function ShopDashboardPage() {
 
       if (snap.exists()) {
         await updateDoc(invRef, { stock: increment(Number(addData.stock)), costPrice: Number(addData.costPrice) });
-        alert("Success: আগের প্রোডাক্টের সাথে স্টক যোগ হয়েছে!");
       } else {
         await setDoc(invRef, {
-          shop: selectedShop,
-          productName: addData.productName,
-          category: addData.category,
-          size: addData.size || "Unknown",
-          color: addData.color || "Unknown",
-          stock: Number(addData.stock),
-          costPrice: Number(addData.costPrice)
+          shop: selectedShop, productName: addData.productName, category: addData.category, size: addData.size || "Unknown", color: addData.color || "Unknown", stock: Number(addData.stock), costPrice: Number(addData.costPrice)
         });
-        alert("Success: নতুন প্রোডাক্ট যোগ হয়েছে!");
       }
       setShowAddModal(false);
       setAddData({ productName: "", category: "", size: "", color: "", stock: 0, costPrice: 0 });
-    } catch (error) { alert("প্রোডাক্ট অ্যাড করতে সমস্যা হয়েছে!"); }
+      alert("Success: প্রোডাক্ট যোগ হয়েছে!");
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
+  };
+
+  // এডিট সেভ
+  const handleUpdateItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    try {
+      const invRef = doc(db, "shop_inventories", editingItem.id);
+      await updateDoc(invRef, { 
+        productName: editData.productName, category: editData.category, size: editData.size, color: editData.color, stock: Number(editData.stock), costPrice: Number(editData.costPrice)
+      });
+      setEditingItem(null);
+      alert("Success: আপডেট হয়েছে!");
+    } catch (error) { alert("আপডেট করতে সমস্যা হয়েছে!"); }
+  };
+
+  // ডিলিট
+  const handleDelete = async (id: string, name: string) => {
+    if (window.confirm(`"${name}" ডিলিট করতে চান?`)) {
+      await deleteDoc(doc(db, "shop_inventories", id));
+    }
   };
 
   return (
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
-      
       {/* হেডার */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
         <div className="flex items-center gap-3">
@@ -177,17 +199,11 @@ export default function ShopDashboardPage() {
         </div>
       </div>
 
-      {/* ✅ দোকান সিলেক্ট ড্রপডাউন (এখান থেকেই দোকান বদলাতে পারবেন) */}
+      {/* দোকান সিলেক্ট */}
       <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
         <Store size={18} className="text-brand-navy ml-2" />
-        <select 
-          className="w-full bg-transparent outline-none text-sm font-bold text-brand-navy py-2 cursor-pointer" 
-          value={selectedShop} 
-          onChange={(e) => setSelectedShop(e.target.value)}
-        >
-          {shops.map((shop) => (
-            <option key={shop.id} value={shop.name}>{shop.name}</option>
-          ))}
+        <select className="w-full bg-transparent outline-none text-sm font-bold text-brand-navy py-2 cursor-pointer" value={selectedShop} onChange={(e) => setSelectedShop(e.target.value)}>
+          {shops.map((shop) => <option key={shop.id} value={shop.name}>{shop.name}</option>)}
         </select>
       </div>
 
@@ -211,8 +227,8 @@ export default function ShopDashboardPage() {
         </div>
       </div>
 
-      {/* টোটাল ভ্যালু কার্ড (শুধু ভ্যালু) */}
-      <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border-t-4 border-green-500 mb-6">
+      {/* টোটাল ভ্যালু কার্ড */}
+      <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border-t-4 border-green-500 mb-4">
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
           <DollarSign size={16}/> Total Stock Value
         </div>
@@ -221,48 +237,113 @@ export default function ShopDashboardPage() {
         </h3>
       </div>
 
-      {/* নতুন প্রোডাক্ট অ্যাড মডাল */}
+      {/* সার্চ ও ফিল্টার */}
+      <div className="flex flex-col md:flex-row gap-2 mb-4">
+        <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 flex items-center gap-2 flex-1">
+          <Search size={18} className="text-gray-400 ml-2" />
+          <input type="text" placeholder="Search..." className="w-full bg-transparent outline-none text-sm py-1" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        </div>
+        <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 flex items-center gap-2 md:w-64">
+          <Filter size={18} className="text-gray-400 ml-2" />
+          <select className="w-full bg-transparent outline-none text-sm py-1 cursor-pointer font-medium text-gray-700" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+            <option value="All">All Categories</option>
+            {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* ✅ প্রোডাক্ট লিস্ট টেবিল */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs md:text-sm min-w-full">
+            <thead className="bg-gray-100 text-gray-600">
+              <tr>
+                <th className="px-2 py-3 font-semibold w-[45%]">Product Details</th>
+                <th className="px-2 py-3 font-semibold text-center w-[15%]">Stock</th>
+                <th className="px-2 py-3 font-semibold text-right w-[20%]">Value</th>
+                <th className="px-2 py-3 font-semibold text-center w-[20%]">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayList.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-500">কোনো প্রোডাক্ট পাওয়া যায়নি।</td></tr>}
+              {displayList.map((item, index) => (
+                <tr key={index} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-2 py-3">
+                    <div className="font-bold text-brand-navy text-xs md:text-sm line-clamp-2">{item.productName}</div>
+                    <div className="text-[10px] text-gray-500 mb-1">{item.category}</div>
+                    <div className="text-[10px] text-gray-700 bg-gray-100 inline-block px-1.5 py-0.5 rounded">
+                      {item.size && item.size !== "Unknown" ? item.size : ""} 
+                      {item.color && item.color !== "Unknown" ? ` / ${item.color}` : ""}
+                      {(!item.size || item.size === "Unknown") && (!item.color || item.color === "Unknown") ? "Standard" : ""}
+                    </div>
+                  </td>
+                  <td className="px-2 py-3 text-center">
+                    <span className={`inline-block px-1.5 py-1 rounded-lg font-bold text-[11px] ${item.stock > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>{item.stock}</span>
+                  </td>
+                  <td className="px-2 py-3 text-right font-medium text-[11px] text-gray-700">৳{item.itemValue.toLocaleString('en-IN')}</td>
+                  <td className="px-2 py-3 text-center">
+                    <div className="flex justify-center gap-1">
+                      <button onClick={() => { setEditingItem(item); setEditData(item); }} className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition"><Edit size={14} /></button>
+                      <button onClick={() => handleDelete(item.id, item.productName)} className="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition"><Trash2 size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Add Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-brand-navy">Add Product to {selectedShop}</h3>
+              <h3 className="text-lg font-bold text-brand-navy">Add Product</h3>
               <button onClick={() => setShowAddModal(false)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
             </div>
-            
             <form onSubmit={handleAddItem} className="space-y-3">
-              <div>
-                <label className="block text-xs font-medium mb-1">Product Name</label>
-                <input required className="w-full border p-2 rounded-lg text-sm" value={addData.productName} onChange={(e) => setAddData({...addData, productName: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1">Category</label>
-                <input required className="w-full border p-2 rounded-lg text-sm" value={addData.category} onChange={(e) => setAddData({...addData, category: e.target.value})} />
+              <div><label className="block text-xs font-medium mb-1">Product Name</label><input required className="w-full border p-2 rounded-lg text-sm" value={addData.productName} onChange={(e) => setAddData({...addData, productName: e.target.value})} /></div>
+              <div><label className="block text-xs font-medium mb-1">Category</label><input required className="w-full border p-2 rounded-lg text-sm" value={addData.category} onChange={(e) => setAddData({...addData, category: e.target.value})} /></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="block text-xs font-medium mb-1">Size</label><input required className="w-full border p-2 rounded-lg text-sm" value={addData.size} onChange={(e) => setAddData({...addData, size: e.target.value})} /></div>
+                <div><label className="block text-xs font-medium mb-1">Color</label><input required className="w-full border p-2 rounded-lg text-sm" value={addData.color} onChange={(e) => setAddData({...addData, color: e.target.value})} /></div>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-medium mb-1">Size</label>
-                  <input required className="w-full border p-2 rounded-lg text-sm" value={addData.size} onChange={(e) => setAddData({...addData, size: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1">Color</label>
-                  <input required className="w-full border p-2 rounded-lg text-sm" value={addData.color} onChange={(e) => setAddData({...addData, color: e.target.value})} />
-                </div>
+                <div><label className="block text-xs font-medium mb-1">Stock</label><input required type="number" className="w-full border p-2 rounded-lg text-lg font-bold" value={addData.stock} onChange={(e) => setAddData({...addData, stock: Number(e.target.value)})} /></div>
+                <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input required type="number" className="w-full border p-2 rounded-lg text-sm" value={addData.costPrice} onChange={(e) => setAddData({...addData, costPrice: Number(e.target.value)})} /></div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-medium mb-1">Stock</label>
-                  <input required type="number" className="w-full border p-2 rounded-lg text-lg font-bold" value={addData.stock} onChange={(e) => setAddData({...addData, stock: Number(e.target.value)})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium mb-1">Cost Price (৳)</label>
-                  <input required type="number" className="w-full border p-2 rounded-lg text-sm" value={addData.costPrice} onChange={(e) => setAddData({...addData, costPrice: Number(e.target.value)})} />
-                </div>
-              </div>
-
               <div className="flex justify-end gap-2 pt-3 border-t mt-2">
                 <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm">Add Product</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {editingItem && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-brand-navy">Edit Product</h3>
+              <button onClick={() => setEditingItem(null)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
+            </div>
+            <form onSubmit={handleUpdateItem} className="space-y-3">
+              <div><label className="block text-xs font-medium mb-1">Product Name</label><input required className="w-full border p-2 rounded-lg text-sm" value={editData.productName} onChange={(e) => setEditData({...editData, productName: e.target.value})} /></div>
+              <div><label className="block text-xs font-medium mb-1">Category</label><input required className="w-full border p-2 rounded-lg text-sm" value={editData.category} onChange={(e) => setEditData({...editData, category: e.target.value})} /></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="block text-xs font-medium mb-1">Size</label><input required className="w-full border p-2 rounded-lg text-sm" value={editData.size} onChange={(e) => setEditData({...editData, size: e.target.value})} /></div>
+                <div><label className="block text-xs font-medium mb-1">Color</label><input required className="w-full border p-2 rounded-lg text-sm" value={editData.color} onChange={(e) => setEditData({...editData, color: e.target.value})} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="block text-xs font-medium mb-1">Stock</label><input required type="number" className="w-full border p-2 rounded-lg text-lg font-bold" value={editData.stock} onChange={(e) => setEditData({...editData, stock: Number(e.target.value)})} /></div>
+                <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input required type="number" className="w-full border p-2 rounded-lg text-sm" value={editData.costPrice} onChange={(e) => setEditData({...editData, costPrice: Number(e.target.value)})} /></div>
+              </div>
+              <div className="flex justify-end gap-2 pt-3 border-t mt-2">
+                <button type="button" onClick={() => setEditingItem(null)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded-lg text-sm">Save Changes</button>
               </div>
             </form>
           </div>
