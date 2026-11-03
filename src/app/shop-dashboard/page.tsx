@@ -2,9 +2,9 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db, auth } from "../../lib/firebase";
-import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, increment } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, increment, addDoc, deleteDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Package, Folder } from "lucide-react";
+import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Package, Folder, ChevronRight, Search, Filter, Edit, Trash2 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -18,7 +18,17 @@ export default function ShopDashboardPage() {
   const [shopInventories, setShopInventories] = useState<any[]>([]);
   const [shopStatements, setShopStatements] = useState<any[]>([]);
 
-  // ইউজার চেক
+  // ✅ ভিউ স্টেট (ড্যাশবোর্ড, মেইন ক্যাটাগরি, সাব-ক্যাটাগরি, প্রোডাক্ট)
+  const [viewMode, setViewMode] = useState<"dashboard" | "main" | "sub" | "product">("dashboard");
+  const [selectedMain, setSelectedMain] = useState("");
+  const [selectedSub, setSelectedSub] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+
+  // অ্যাড/এডিট স্টেট
+  const [showModal, setShowModal] = useState(false);
+  const [isEdit, setIsEdit] = useState(false);
+  const [formData, setFormData] = useState<any>({ id: "", name: "", mainCategory: "", subCategory: "", variations: [] });
+
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(async (user) => {
       if (user && user.email) {
@@ -28,9 +38,7 @@ export default function ShopDashboardPage() {
           const docSnap = await getDoc(doc(db, "users", user.email));
           if (docSnap.exists()) {
             setUserRole(docSnap.data().role || "manager");
-            if (docSnap.data().assignedShop) {
-              setSelectedShop(docSnap.data().assignedShop);
-            }
+            if (docSnap.data().assignedShop) setSelectedShop(docSnap.data().assignedShop);
           }
         }
       }
@@ -38,32 +46,25 @@ export default function ShopDashboardPage() {
     return () => unsubAuth();
   }, []);
 
-  // দোকান লোড
   useEffect(() => {
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
       setShops(data);
-      if (data.length > 0 && !selectedShop) {
-        setSelectedShop(data[0].name);
-      }
+      if (data.length > 0 && !selectedShop) setSelectedShop(data[0].name);
     });
     return () => unsubShops();
   }, [selectedShop]);
 
-  // ডেটা লোড
   useEffect(() => {
     if (!selectedShop) return;
-
     const unsubInv = onSnapshot(query(collection(db, "shop_inventories")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setShopInventories(data.filter(item => item.shop === selectedShop));
     });
-
     const unsubStatements = onSnapshot(query(collection(db, "shop_statements")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setShopStatements(data.filter(item => item.shop === selectedShop));
     });
-
     return () => { unsubInv(); unsubStatements(); };
   }, [selectedShop]);
 
@@ -74,108 +75,167 @@ export default function ShopDashboardPage() {
   const profitLoss = todaySales - (todayExpense + todayPurchase);
 
   let totalStockValue = 0;
-  shopInventories.forEach(item => {
-    totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0);
-  });
+  shopInventories.forEach(item => { totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0); });
 
-  // ✅ শুধু PDF ডাউনলোড (ড্যাশবোর্ডের জন্য)
+  // ✅ ফোল্ডার ফিল্টারিং
+  const mainCategories = ["Cotton", "Polestar"];
+  const subCategories = Array.from(new Set(shopInventories.filter(p => p.mainCategory === selectedMain).map(p => p.subCategory || "Others")));
+  
+  const filteredProducts = shopInventories.filter(p => {
+    if (viewMode === "product") return p.mainCategory === selectedMain && (p.subCategory || "Others") === selectedSub;
+    return true;
+  }).filter(p => p.productName.toLowerCase().includes(searchTerm.toLowerCase()));
+
+  // PDF ডাউনলোড
   const downloadPDF = async () => {
-    if (shopInventories.length === 0) { alert("ডাউনলোড করার জন্য কোনো ডেটা নেই!"); return; }
+    if (shopInventories.length === 0) return alert("ডেটা নেই!");
     const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text(`Stock Report - ${selectedShop}`, 14, 15);
-    doc.setFontSize(10);
-    doc.text(`Total Value: BDT ${totalStockValue.toLocaleString('en-IN')}`, 14, 22);
+    doc.setFontSize(16); doc.text(`Stock Report - ${selectedShop}`, 14, 15);
+    const tableData = shopInventories.map(item => [item.productName, item.size || "-", item.color || "-", item.stock, `৳${item.costPrice}`, `৳${(item.stock * item.costPrice)}`]);
+    autoTable(doc, { head: [['Product', 'Size', 'Color', 'Stock', 'Rate', 'Total']], body: tableData, startY: 25 });
+    const pdfBlob = doc.output('blob'); const file = new File([pdfBlob], `Stock_${selectedShop}.pdf`, { type: 'application/pdf' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); } catch (e) {} } else { doc.save(`Stock.pdf`); }
+  };
 
-    const tableData = shopInventories.map(item => [
-      item.productName, item.size === "Unknown" ? "-" : (item.size || "-"), item.color === "Unknown" ? "-" : (item.color || "-"), item.stock, `BDT ${item.costPrice}`, `BDT ${((item.stock || 0) * (item.costPrice || 0)).toLocaleString('en-IN')}`
-    ]);
+  // অ্যাড/এডিট ওপেন
+  const openAddModal = () => { setIsEdit(false); setFormData({ id: "", name: "", mainCategory: selectedMain, subCategory: selectedSub, variations: [{ size: "", color: "", stock: 0, costPrice: 0 }] }); setShowModal(true); };
+  const openEditModal = (item: any) => { setIsEdit(true); setFormData({ id: item.id, name: item.productName, mainCategory: item.mainCategory, subCategory: item.subCategory, variations: [{ size: item.size, color: item.color, stock: item.stock, costPrice: item.costPrice }] }); setShowModal(true); };
 
-    autoTable(doc, {
-      head: [['Product', 'Size', 'Color', 'Stock', 'Rate', 'Total']],
-      body: tableData,
-      startY: 30,
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [31, 45, 92] },
-    });
-
-    const pdfBlob = doc.output('blob');
-    const file = new File([pdfBlob], `${selectedShop}_Stock.pdf`, { type: 'application/pdf' });
-
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: 'Stock' }); } catch (e) { console.log(e); }
-    } else {
-      doc.save(`${selectedShop}_Stock.pdf`);
-    }
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (isEdit) {
+        await updateDoc(doc(db, "shop_inventories", formData.id), {
+          productName: formData.name, size: formData.variations[0].size, color: formData.variations[0].color, stock: Number(formData.variations[0].stock), costPrice: Number(formData.variations[0].costPrice)
+        });
+      } else {
+        const shopInvId = `${selectedShop}_${formData.name}_${formData.variations[0].size}_${formData.variations[0].color}`.replace(/\s+/g, '_').replace(/\//g, '-');
+        await setDoc(doc(db, "shop_inventories", shopInvId), {
+          shop: selectedShop, productName: formData.name, category: formData.subCategory, mainCategory: formData.mainCategory, subCategory: formData.subCategory,
+          size: formData.variations[0].size || "Unknown", color: formData.variations[0].color || "Unknown", stock: Number(formData.variations[0].stock), costPrice: Number(formData.variations[0].costPrice)
+        });
+      }
+      setShowModal(false); alert("সেভ হয়েছে!");
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
   return (
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.push("/")} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
-            <ArrowLeft size={20} className="text-gray-600" />
-          </button>
-          <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Shop Dashboard</h2>
-        </div>
-        
-        <div className="flex flex-wrap gap-2 w-full md:w-auto">
-          <button onClick={downloadPDF} className="flex-1 md:flex-none justify-center bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 hover:bg-brand-navy/90 transition shadow-sm">
-            <Download size={16} /> PDF / Share
-          </button>
-        </div>
+      <div className="flex items-center gap-3 mb-4">
+        <button onClick={() => viewMode === "dashboard" ? router.push("/") : setViewMode("dashboard")} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
+          <ArrowLeft size={20} className="text-gray-600" />
+        </button>
+        <h2 className="text-xl md:text-2xl font-bold text-brand-navy">
+          {viewMode === "dashboard" ? "Shop Dashboard" : viewMode === "main" ? "Stock Categories" : viewMode === "sub" ? selectedMain : selectedSub}
+        </h2>
       </div>
 
-      {/* দোকান সিলেক্ট */}
-      <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
-        <Store size={18} className="text-brand-navy ml-2" />
-        <select className="w-full bg-transparent outline-none text-sm font-bold text-brand-navy py-2 cursor-pointer" value={selectedShop} onChange={(e) => setSelectedShop(e.target.value)}>
-          {shops.map((shop) => <option key={shop.id} value={shop.name}>{shop.name}</option>)}
-        </select>
-      </div>
+      {viewMode === "dashboard" && (
+        <>
+          <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
+            <Store size={18} className="text-brand-navy ml-2" />
+            <select className="w-full bg-transparent outline-none text-sm font-bold text-brand-navy py-2" value={selectedShop} onChange={(e) => setSelectedShop(e.target.value)}>
+              {shops.map((shop) => <option key={shop.id} value={shop.name}>{shop.name}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="bg-white p-3 rounded-xl border-t-4 border-green-500"><div className="text-xs text-gray-500">Today's Sales</div><h3 className="text-lg font-bold text-green-600">৳{todaySales}</h3></div>
+            <div className="bg-white p-3 rounded-xl border-t-4 border-red-500"><div className="text-xs text-gray-500">Expense</div><h3 className="text-lg font-bold text-red-600">৳{todayExpense}</h3></div>
+            <div className="bg-white p-3 rounded-xl border-t-4 border-blue-500"><div className="text-xs text-gray-500">Purchase</div><h3 className="text-lg font-bold text-blue-600">৳{todayPurchase}</h3></div>
+            <div className="bg-white p-3 rounded-xl border-t-4 border-brand-navy"><div className="text-xs text-gray-500">Profit/Loss</div><h3 className="text-lg font-bold text-brand-navy">৳{profitLoss}</h3></div>
+          </div>
+          <div className="bg-white p-4 rounded-xl border-t-4 border-green-500 mb-6">
+            <div className="text-sm text-gray-500">Total Stock Value</div>
+            <h3 className="text-2xl font-bold text-green-600">৳{totalStockValue.toLocaleString('en-IN')}</h3>
+          </div>
+          
+          {/* ✅ Stock Folder Button */}
+          <div onClick={() => setViewMode("main")} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md cursor-pointer flex flex-col items-center justify-center gap-3">
+            <div className="bg-brand-navy/10 p-4 rounded-full"><Package size={40} className="text-brand-navy" /></div>
+            <h3 className="text-xl font-bold text-brand-navy">Stock / Products</h3>
+            <p className="text-sm text-gray-500">Click to view products by category</p>
+          </div>
+        </>
+      )}
 
-      {/* আজকের হিসাব */}
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <div className="bg-white p-3 md:p-4 rounded-xl shadow-sm border-t-4 border-green-500">
-          <div className="text-xs text-gray-500 mb-1">Today's Sales</div>
-          <h3 className="text-lg font-bold text-green-600">৳{todaySales.toLocaleString('en-IN')}</h3>
+      {viewMode === "main" && (
+        <div className="grid grid-cols-2 gap-4 mt-6">
+          {mainCategories.map(cat => (
+            <div key={cat} onClick={() => { setSelectedMain(cat); setViewMode("sub"); }} className="bg-white p-8 rounded-2xl shadow-sm hover:shadow-md cursor-pointer flex flex-col items-center gap-3">
+              <Folder size={40} className="text-brand-navy" />
+              <h3 className="text-xl font-bold text-brand-navy">{cat}</h3>
+            </div>
+          ))}
         </div>
-        <div className="bg-white p-3 md:p-4 rounded-xl shadow-sm border-t-4 border-red-500">
-          <div className="text-xs text-gray-500 mb-1">Today's Expense</div>
-          <h3 className="text-lg font-bold text-red-600">৳{todayExpense.toLocaleString('en-IN')}</h3>
-        </div>
-        <div className="bg-white p-3 md:p-4 rounded-xl shadow-sm border-t-4 border-blue-500">
-          <div className="text-xs text-gray-500 mb-1">Today's Purchase</div>
-          <h3 className="text-lg font-bold text-blue-600">৳{todayPurchase.toLocaleString('en-IN')}</h3>
-        </div>
-        <div className="bg-white p-3 md:p-4 rounded-xl shadow-sm border-t-4 border-brand-navy">
-          <div className="text-xs text-gray-500 mb-1">Profit/Loss</div>
-          <h3 className={`text-lg font-bold ${profitLoss >= 0 ? 'text-brand-navy' : 'text-red-600'}`}>৳{profitLoss.toLocaleString('en-IN')}</h3>
-        </div>
-      </div>
+      )}
 
-      {/* টোটাল ভ্যালু কার্ড */}
-      <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border-t-4 border-green-500 mb-6">
-        <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
-          <DollarSign size={16}/> Total Stock Value
+      {viewMode === "sub" && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {subCategories.map(sub => (
+            <div key={sub} onClick={() => { setSelectedSub(sub); setViewMode("product"); }} className="bg-white p-4 rounded-xl shadow-sm cursor-pointer flex items-center justify-between">
+              <span className="font-bold text-gray-700">{sub}</span><ChevronRight size={18} className="text-gray-400" />
+            </div>
+          ))}
         </div>
-        <h3 className="text-2xl md:text-3xl font-bold text-green-600 truncate">
-          ৳{totalStockValue.toLocaleString('en-IN')}
-        </h3>
-      </div>
+      )}
 
-      {/* ✅ নতুন স্টক ফোল্ডার বাটন */}
-      <div 
-        onClick={() => router.push('/shop-products')} 
-        className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition cursor-pointer flex flex-col items-center justify-center gap-3"
-      >
-        <div className="bg-brand-navy/10 p-4 rounded-full">
-          <Package size={40} className="text-brand-navy" />
+      {viewMode === "product" && (
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <div className="bg-white p-2 rounded-lg border flex items-center gap-2 w-full max-w-xs">
+              <Search size={16} className="text-gray-400" />
+              <input type="text" placeholder="Search..." className="outline-none text-sm w-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            </div>
+            <button onClick={openAddModal} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><PlusCircle size={16}/> Add Product</button>
+          </div>
+          
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <table className="w-full text-left text-xs md:text-sm">
+              <thead className="bg-gray-100 text-gray-600">
+                <tr><th className="px-2 py-3">Product</th><th className="px-2 py-3 text-center">Stock</th><th className="px-2 py-3 text-center">Action</th></tr>
+              </thead>
+              <tbody>
+                {filteredProducts.map(item => (
+                  <tr key={item.id} className="border-b">
+                    <td className="px-2 py-3">
+                      <div className="font-bold text-brand-navy">{item.productName}</div>
+                      <div className="text-[10px] text-gray-500">{item.size} / {item.color}</div>
+                    </td>
+                    <td className="px-2 py-3 text-center font-bold text-green-600">{item.stock}</td>
+                    <td className="px-2 py-3 text-center flex justify-center gap-1">
+                      <button onClick={() => openEditModal(item)} className="p-1 text-blue-600 bg-blue-50 rounded"><Edit size={14} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-        <h3 className="text-xl font-bold text-brand-navy">Stock / Products</h3>
-        <p className="text-sm text-gray-500 text-center">Click here to view and edit products by category</p>
-      </div>
-      
+      )}
+
+      {/* Add/Edit Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-4">{isEdit ? "Edit Product" : "Add New Product"}</h3>
+            <form onSubmit={handleSave} className="space-y-3">
+              <div><label className="text-xs">Product Name</label><input required className="w-full border p-2 rounded" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs">Size</label><input className="w-full border p-2 rounded" value={formData.variations[0]?.size} onChange={e => { const v = [...formData.variations]; v[0].size = e.target.value; setFormData({...formData, variations: v}); }} /></div>
+                <div><label className="text-xs">Color</label><input className="w-full border p-2 rounded" value={formData.variations[0]?.color} onChange={e => { const v = [...formData.variations]; v[0].color = e.target.value; setFormData({...formData, variations: v}); }} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs">Stock</label><input type="number" className="w-full border p-2 rounded" value={formData.variations[0]?.stock} onChange={e => { const v = [...formData.variations]; v[0].stock = e.target.value; setFormData({...formData, variations: v}); }} /></div>
+                <div><label className="text-xs">Cost</label><input type="number" className="w-full border p-2 rounded" value={formData.variations[0]?.costPrice} onChange={e => { const v = [...formData.variations]; v[0].costPrice = e.target.value; setFormData({...formData, variations: v}); }} /></div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
