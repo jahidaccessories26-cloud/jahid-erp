@@ -2,25 +2,22 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db, auth } from "../../lib/firebase";
-import { collection, onSnapshot, query, doc, getDoc, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, updateDoc, deleteDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Package, Search, ArrowLeft, Store, Edit, X, DollarSign, TrendingUp } from "lucide-react";
+import { Package, Search, ArrowLeft, Store, Edit, X, DollarSign, Trash2, PlusCircle } from "lucide-react";
 
 export default function ShopInventoryPage() {
   const router = useRouter();
   
   const [userRole, setUserRole] = useState("manager");
-  const [userShop, setUserShop] = useState("");
-  
   const [shops, setShops] = useState<any[]>([]);
   const [selectedShop, setSelectedShop] = useState("");
   
-  const [products, setProducts] = useState<any[]>([]);
   const [shopInventories, setShopInventories] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
 
   const [editingItem, setEditingItem] = useState<any>(null);
-  const [editStock, setEditStock] = useState(0);
+  const [editData, setEditData] = useState({ productName: "", category: "", size: "", color: "", stock: 0, costPrice: 0 });
 
   // ইউজার চেক
   useEffect(() => {
@@ -32,7 +29,6 @@ export default function ShopInventoryPage() {
           const docSnap = await getDoc(doc(db, "users", user.email));
           if (docSnap.exists()) {
             setUserRole(docSnap.data().role || "manager");
-            setUserShop(docSnap.data().assignedShop || "");
             setSelectedShop(docSnap.data().assignedShop || "");
           }
         }
@@ -51,77 +47,75 @@ export default function ShopInventoryPage() {
       }
     });
 
-    const unsubProducts = onSnapshot(query(collection(db, "products")), (snapshot) => {
-      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
     const unsubInv = onSnapshot(query(collection(db, "shop_inventories")), (snapshot) => {
       setShopInventories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
-    return () => { unsubShops(); unsubProducts(); unsubInv(); };
+    return () => { unsubShops(); unsubInv(); };
   }, [selectedShop, userRole]);
 
-  // ওয়্যারহাউসের সব ভ্যারিয়েশন ফ্ল্যাট করা
-  const allMasterVariations = products.flatMap((p: any) =>
-    (p.variations || []).map((v: any) => ({
-      productName: p.name,
-      category: p.category,
-      size: v.size,
-      color: v.color,
-      costPrice: v.costPrice || 0,
-    }))
-  );
-
-  // নির্দিষ্ট দোকানের ইনভেন্টরি ম্যাপ
-  const shopInvMap = new Map();
-  shopInventories.filter(i => i.shop === selectedShop).forEach(item => {
-    const key = `${item.productName}_${item.size}_${item.color}`;
-    shopInvMap.set(key, { id: item.id, stock: item.stock });
-  });
-
-  // ফিল্টার ও ক্যালকুলেশন
+  // ✅ দোকানের ডেটা ফিল্টার (সরাসরি shop_inventories থেকে)
   let totalStockValue = 0;
   
-  const displayList = allMasterVariations
-    .map(master => {
-      const key = `${master.productName}_${master.size}_${master.color}`;
-      const invData = shopInvMap.get(key) || { id: null, stock: 0 };
-      const itemTotalValue = invData.stock * master.costPrice;
-      
-      totalStockValue += itemTotalValue; // মোট ভ্যালু যোগ
-
-      return { ...master, shopStock: invData.stock, inventoryId: invData.id, itemValue: itemTotalValue };
-    })
+  const displayList = shopInventories
+    .filter(item => item.shop === selectedShop)
     .filter(item => {
-      return item.productName.toLowerCase().includes(searchTerm.toLowerCase()) || 
-             item.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-             item.size.toLowerCase().includes(searchTerm.toLowerCase()) ||
-             item.color.toLowerCase().includes(searchTerm.toLowerCase());
+      const searchLower = searchTerm.toLowerCase();
+      return (item.productName || "").toLowerCase().includes(searchLower) || 
+             (item.category || "").toLowerCase().includes(searchLower) ||
+             (item.size || "").toLowerCase().includes(searchLower) ||
+             (item.color || "").toLowerCase().includes(searchLower);
+    })
+    .map(item => {
+      const itemValue = (item.stock || 0) * (item.costPrice || 0);
+      totalStockValue += itemValue;
+      return { ...item, itemValue };
     });
 
+  // এডিট ওপেন
   const handleEditClick = (item: any) => {
-    if (!item.inventoryId) {
-      alert("এই প্রোডাক্টটি এখনো দোকানে আসেনি। আগে ওয়্যারহাউস থেকে ট্রান্সফার করুন।");
-      return;
-    }
     setEditingItem(item);
-    setEditStock(item.shopStock);
+    setEditData({
+      productName: item.productName || "",
+      category: item.category || "",
+      size: item.size || "",
+      color: item.color || "",
+      stock: item.stock || 0,
+      costPrice: item.costPrice || 0
+    });
   };
 
-  const handleUpdateStock = async (e: React.FormEvent) => {
+  // এডিট সেভ
+  const handleUpdateItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingItem) return;
     try {
-      const invRef = doc(db, "shop_inventories", editingItem.inventoryId);
-      await updateDoc(invRef, { stock: Number(editStock) });
+      const invRef = doc(db, "shop_inventories", editingItem.id);
+      await updateDoc(invRef, { 
+        productName: editData.productName,
+        category: editData.category,
+        size: editData.size,
+        color: editData.color,
+        stock: Number(editData.stock),
+        costPrice: Number(editData.costPrice)
+      });
       setEditingItem(null);
-      alert("Success: স্টক আপডেট হয়েছে!");
+      alert("Success: প্রোডাক্ট আপডেট হয়েছে!");
     } catch (error) { alert("আপডেট করতে সমস্যা হয়েছে!"); }
   };
 
+  // ডিলিট
+  const handleDelete = async (id: string, name: string) => {
+    if (window.confirm(`আপনি কি নিশ্চিত "${name}" দোকানের স্টক থেকে ডিলিট করতে চান?`)) {
+      try {
+        await deleteDoc(doc(db, "shop_inventories", id));
+        alert("Success: ডিলিট হয়েছে!");
+      } catch (error) { alert("ডিলিট করতে সমস্যা হয়েছে!"); }
+    }
+  };
+
   return (
-    <div className="max-w-5xl mx-auto">
+    <div className="max-w-5xl mx-auto pb-10">
       <div className="flex items-center gap-3 mb-4">
         <button onClick={() => router.push("/")} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
           <ArrowLeft size={20} className="text-gray-600" />
@@ -134,10 +128,11 @@ export default function ShopInventoryPage() {
         <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
           <Store size={18} className="text-brand-navy ml-2" />
           <select 
-            className="w-full bg-transparent outline-none text-sm font-bold text-brand-navy py-1 cursor-pointer"
+            className="w-full bg-transparent outline-none text-sm font-bold text-brand-navy py-2 cursor-pointer"
             value={selectedShop} 
             onChange={(e) => setSelectedShop(e.target.value)}
           >
+            <option value="" disabled>-- Select Shop --</option>
             {shops.map((shop) => (
               <option key={shop.id} value={shop.name}>{shop.name}</option>
             ))}
@@ -160,7 +155,7 @@ export default function ShopInventoryPage() {
         <div className="bg-white p-4 rounded-xl shadow-sm border-t-4 border-blue-500">
           <div className="flex items-center gap-2 text-xs text-gray-500 mb-1"><Package size={14}/> Total Stock Items</div>
           <h3 className="text-xl font-bold text-brand-navy">
-            {displayList.reduce((sum, item) => sum + item.shopStock, 0)} pcs
+            {displayList.reduce((sum, item) => sum + (item.stock || 0), 0)} pcs
           </h3>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm border-t-4 border-green-500">
@@ -176,7 +171,7 @@ export default function ShopInventoryPage() {
         <Search size={18} className="text-gray-400 ml-2" />
         <input 
           type="text" 
-          placeholder="Search by product, size, color..." 
+          placeholder="Search product, size, color..." 
           className="w-full bg-transparent outline-none text-sm py-1"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
@@ -192,14 +187,14 @@ export default function ShopInventoryPage() {
                 <th className="px-3 py-3 font-semibold">Product Details</th>
                 <th className="px-3 py-3 font-semibold text-center">Stock</th>
                 <th className="px-3 py-3 font-semibold text-right">Value (৳)</th>
-                <th className="px-3 py-3 font-semibold text-right">Action</th>
+                <th className="px-3 py-3 font-semibold text-center">Action</th>
               </tr>
             </thead>
             <tbody>
               {displayList.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-gray-500">
-                    কোনো প্রোডাক্ট পাওয়া যায়নি।
+                    এই দোকানে কোনো প্রোডাক্ট পাওয়া যায়নি।
                   </td>
                 </tr>
               )}
@@ -214,21 +209,29 @@ export default function ShopInventoryPage() {
                   </td>
                   <td className="px-3 py-3 text-center">
                     <span className={`inline-block px-2 py-1 rounded-lg font-bold text-xs ${
-                      item.shopStock > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+                      item.stock > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
                     }`}>
-                      {item.shopStock}
+                      {item.stock}
                     </span>
                   </td>
                   <td className="px-3 py-3 text-right font-medium text-gray-700">
                     ৳{item.itemValue.toLocaleString('en-IN')}
                   </td>
-                  <td className="px-3 py-3 text-right">
-                    <button 
-                      onClick={() => handleEditClick(item)} 
-                      className={`p-1.5 rounded-lg transition ${item.inventoryId ? 'bg-blue-50 text-blue-600 hover:bg-blue-100' : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}
-                    >
-                      <Edit size={16} />
-                    </button>
+                  <td className="px-3 py-3 text-center">
+                    <div className="flex justify-center gap-1">
+                      <button 
+                        onClick={() => handleEditClick(item)} 
+                        className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition"
+                      >
+                        <Edit size={16} />
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(item.id, item.productName)} 
+                        className="p-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -237,35 +240,48 @@ export default function ShopInventoryPage() {
         </div>
       </div>
 
-      {/* এডিট স্টক মডাল */}
+      {/* এডিট মডাল */}
       {editingItem && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm">
+          <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-brand-navy">Edit Stock</h3>
+              <h3 className="text-lg font-bold text-brand-navy">Edit Shop Product</h3>
               <button onClick={() => setEditingItem(null)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
             </div>
             
-            <div className="bg-gray-50 p-3 rounded-lg mb-4 text-sm">
-              <p className="font-bold text-brand-navy">{editingItem.productName}</p>
-              <p className="text-gray-500 text-xs">{editingItem.size} / {editingItem.color}</p>
-              <p className="text-gray-500 text-xs mt-1">Cost Price: ৳{editingItem.costPrice}</p>
-            </div>
-
-            <form onSubmit={handleUpdateStock}>
-              <div className="mb-4">
-                <label className="block text-sm font-medium mb-1">New Stock Quantity</label>
-                <input 
-                  required 
-                  type="number" 
-                  className="w-full border p-2 rounded-lg text-lg font-bold" 
-                  value={editStock} 
-                  onChange={(e) => setEditStock(Number(e.target.value))} 
-                />
+            <form onSubmit={handleUpdateItem} className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium mb-1">Product Name</label>
+                <input required className="w-full border p-2 rounded-lg text-sm" value={editData.productName} onChange={(e) => setEditData({...editData, productName: e.target.value})} />
               </div>
-              <div className="flex justify-end gap-2">
-                <button type="button" onClick={() => setEditingItem(null)} className="px-4 py-2 border rounded-lg">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded-lg">Update Stock</button>
+              <div>
+                <label className="block text-xs font-medium mb-1">Category</label>
+                <input required className="w-full border p-2 rounded-lg text-sm" value={editData.category} onChange={(e) => setEditData({...editData, category: e.target.value})} />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Size</label>
+                  <input required className="w-full border p-2 rounded-lg text-sm" value={editData.size} onChange={(e) => setEditData({...editData, size: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Color</label>
+                  <input required className="w-full border p-2 rounded-lg text-sm" value={editData.color} onChange={(e) => setEditData({...editData, color: e.target.value})} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Stock</label>
+                  <input required type="number" className="w-full border p-2 rounded-lg text-lg font-bold" value={editData.stock} onChange={(e) => setEditData({...editData, stock: Number(e.target.value)})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Cost Price (৳)</label>
+                  <input required type="number" className="w-full border p-2 rounded-lg text-sm" value={editData.costPrice} onChange={(e) => setEditData({...editData, costPrice: Number(e.target.value)})} />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t mt-2">
+                <button type="button" onClick={() => setEditingItem(null)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded-lg text-sm">Save Changes</button>
               </div>
             </form>
           </div>
