@@ -22,13 +22,13 @@ export default function ShopDashboardPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
 
-  // এডিট স্টেট
-  const [editingItem, setEditingItem] = useState<any>(null);
-  const [editData, setEditData] = useState({ productName: "", category: "", size: "", color: "", stock: 0, costPrice: 0 });
+  // ✅ এডিট স্টেট (অ্যারে হিসেবে, যাতে একাধিক সাইজ এডিট করা যায়)
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [editVariations, setEditVariations] = useState<any[]>([]);
 
   // অ্যাড প্রোডাক্ট স্টেট
   const [showAddModal, setShowAddModal] = useState(false);
-  const [addData, setAddData] = useState({ productName: "", category: "", size: "", color: "", stock: 0, costPrice: 0 });
+  const [addData, setAddData] = useState({ productName: "", category: "", size: "", color: "", stock: "", costPrice: "" });
 
   // ইউজার চেক
   useEffect(() => {
@@ -87,7 +87,6 @@ export default function ShopDashboardPage() {
 
   let totalStockValue = 0;
   
-  // ✅ লিস্ট ফিল্টারিং
   const categories = Array.from(new Set(shopInventories.map(item => item.category).filter(Boolean)));
   const displayList = shopInventories
     .filter(item => {
@@ -145,28 +144,53 @@ export default function ShopDashboardPage() {
       const snap = await getDoc(invRef);
 
       if (snap.exists()) {
-        await updateDoc(invRef, { stock: increment(Number(addData.stock)), costPrice: Number(addData.costPrice) });
+        await updateDoc(invRef, { stock: increment(Number(addData.stock) || 0), costPrice: Number(addData.costPrice) || 0 });
       } else {
         await setDoc(invRef, {
-          shop: selectedShop, productName: addData.productName, category: addData.category, size: addData.size || "Unknown", color: addData.color || "Unknown", stock: Number(addData.stock), costPrice: Number(addData.costPrice)
+          shop: selectedShop, productName: addData.productName, category: addData.category, size: addData.size || "Unknown", color: addData.color || "Unknown", stock: Number(addData.stock) || 0, costPrice: Number(addData.costPrice) || 0
         });
       }
       setShowAddModal(false);
-      setAddData({ productName: "", category: "", size: "", color: "", stock: 0, costPrice: 0 });
+      setAddData({ productName: "", category: "", size: "", color: "", stock: "", costPrice: "" });
       alert("Success: প্রোডাক্ট যোগ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // এডিট সেভ
+  // ✅ এডিট ওপেন করার ফাংশন
+  const handleEditClick = (item: any) => {
+    setEditingProduct(item);
+    // একটি সিঙ্গেল আইটেমকে অ্যারের ভেতরে রাখছি, যাতে UI একই রকম থাকে
+    setEditVariations([{
+      id: item.id,
+      size: item.size || "",
+      color: item.color || "",
+      stock: item.stock || 0,
+      costPrice: item.costPrice || 0
+    }]);
+  };
+
+  // ✅ ভ্যারিয়েশন চেঞ্জ
+  const handleVariationChange = (index: number, field: string, value: any) => {
+    const newVars = [...editVariations];
+    newVars[index][field] = value;
+    setEditVariations(newVars);
+  };
+
+  // ✅ এডিট সেভ (স্টক ও দাম)
   const handleUpdateItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingItem) return;
+    if (!editingProduct) return;
     try {
-      const invRef = doc(db, "shop_inventories", editingItem.id);
+      const invRef = doc(db, "shop_inventories", editingProduct.id);
       await updateDoc(invRef, { 
-        productName: editData.productName, category: editData.category, size: editData.size, color: editData.color, stock: Number(editData.stock), costPrice: Number(editData.costPrice)
+        productName: editingProduct.productName, 
+        category: editingProduct.category, 
+        size: editVariations[0].size, 
+        color: editVariations[0].color, 
+        stock: Number(editVariations[0].stock), 
+        costPrice: Number(editVariations[0].costPrice)
       });
-      setEditingItem(null);
+      setEditingProduct(null);
       alert("Success: আপডেট হয়েছে!");
     } catch (error) { alert("আপডেট করতে সমস্যা হয়েছে!"); }
   };
@@ -180,7 +204,6 @@ export default function ShopDashboardPage() {
 
   return (
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
-      {/* হেডার */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
         <div className="flex items-center gap-3">
           <button onClick={() => router.push("/")} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
@@ -199,7 +222,6 @@ export default function ShopDashboardPage() {
         </div>
       </div>
 
-      {/* দোকান সিলেক্ট */}
       <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
         <Store size={18} className="text-brand-navy ml-2" />
         <select className="w-full bg-transparent outline-none text-sm font-bold text-brand-navy py-2 cursor-pointer" value={selectedShop} onChange={(e) => setSelectedShop(e.target.value)}>
@@ -207,7 +229,6 @@ export default function ShopDashboardPage() {
         </select>
       </div>
 
-      {/* আজকের হিসাব */}
       <div className="grid grid-cols-2 gap-3 mb-4">
         <div className="bg-white p-3 md:p-4 rounded-xl shadow-sm border-t-4 border-green-500">
           <div className="text-xs text-gray-500 mb-1">Today's Sales</div>
@@ -227,7 +248,6 @@ export default function ShopDashboardPage() {
         </div>
       </div>
 
-      {/* টোটাল ভ্যালু কার্ড */}
       <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border-t-4 border-green-500 mb-4">
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
           <DollarSign size={16}/> Total Stock Value
@@ -237,7 +257,6 @@ export default function ShopDashboardPage() {
         </h3>
       </div>
 
-      {/* সার্চ ও ফিল্টার */}
       <div className="flex flex-col md:flex-row gap-2 mb-4">
         <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 flex items-center gap-2 flex-1">
           <Search size={18} className="text-gray-400 ml-2" />
@@ -252,7 +271,6 @@ export default function ShopDashboardPage() {
         </div>
       </div>
 
-      {/* ✅ প্রোডাক্ট লিস্ট টেবিল */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs md:text-sm min-w-full">
@@ -283,7 +301,7 @@ export default function ShopDashboardPage() {
                   <td className="px-2 py-3 text-right font-medium text-[11px] text-gray-700">৳{item.itemValue.toLocaleString('en-IN')}</td>
                   <td className="px-2 py-3 text-center">
                     <div className="flex justify-center gap-1">
-                      <button onClick={() => { setEditingItem(item); setEditData(item); }} className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition"><Edit size={14} /></button>
+                      <button onClick={() => handleEditClick(item)} className="p-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition"><Edit size={14} /></button>
                       <button onClick={() => handleDelete(item.id, item.productName)} className="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition"><Trash2 size={14} /></button>
                     </div>
                   </td>
@@ -310,8 +328,8 @@ export default function ShopDashboardPage() {
                 <div><label className="block text-xs font-medium mb-1">Color</label><input required className="w-full border p-2 rounded-lg text-sm" value={addData.color} onChange={(e) => setAddData({...addData, color: e.target.value})} /></div>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div><label className="block text-xs font-medium mb-1">Stock</label><input required type="number" className="w-full border p-2 rounded-lg text-lg font-bold" value={addData.stock} onChange={(e) => setAddData({...addData, stock: Number(e.target.value)})} /></div>
-                <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input required type="number" className="w-full border p-2 rounded-lg text-sm" value={addData.costPrice} onChange={(e) => setAddData({...addData, costPrice: Number(e.target.value)})} /></div>
+                <div><label className="block text-xs font-medium mb-1">Stock</label><input required type="number" placeholder="0" className="w-full border p-2 rounded-lg text-lg font-bold" value={addData.stock} onChange={(e) => setAddData({...addData, stock: e.target.value})} /></div>
+                <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input required type="number" placeholder="0" className="w-full border p-2 rounded-lg text-sm" value={addData.costPrice} onChange={(e) => setAddData({...addData, costPrice: e.target.value})} /></div>
               </div>
               <div className="flex justify-end gap-2 pt-3 border-t mt-2">
                 <button type="button" onClick={() => setShowAddModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
@@ -322,28 +340,64 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* Edit Modal */}
-      {editingItem && (
+      {/* ✅ Edit Modal (Size/Color & Add Variation সহ) */}
+      {editingProduct && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+          <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold text-brand-navy">Edit Product</h3>
-              <button onClick={() => setEditingItem(null)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
+              <button onClick={() => setEditingProduct(null)}><X size={20} className="text-gray-400 hover:text-red-500"/></button>
             </div>
-            <form onSubmit={handleUpdateItem} className="space-y-3">
-              <div><label className="block text-xs font-medium mb-1">Product Name</label><input required className="w-full border p-2 rounded-lg text-sm" value={editData.productName} onChange={(e) => setEditData({...editData, productName: e.target.value})} /></div>
-              <div><label className="block text-xs font-medium mb-1">Category</label><input required className="w-full border p-2 rounded-lg text-sm" value={editData.category} onChange={(e) => setEditData({...editData, category: e.target.value})} /></div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><label className="block text-xs font-medium mb-1">Size</label><input required className="w-full border p-2 rounded-lg text-sm" value={editData.size} onChange={(e) => setEditData({...editData, size: e.target.value})} /></div>
-                <div><label className="block text-xs font-medium mb-1">Color</label><input required className="w-full border p-2 rounded-lg text-sm" value={editData.color} onChange={(e) => setEditData({...editData, color: e.target.value})} /></div>
+            
+            <form onSubmit={handleUpdateItem} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium mb-1">Product Name</label>
+                  <input required className="w-full border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white" value={editingProduct.productName} onChange={(e) => setEditingProduct({...editingProduct, productName: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium mb-1">Category</label>
+                  <input required className="w-full border p-2 rounded-lg text-sm bg-gray-50 focus:bg-white" value={editingProduct.category} onChange={(e) => setEditingProduct({...editingProduct, category: e.target.value})} />
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><label className="block text-xs font-medium mb-1">Stock</label><input required type="number" className="w-full border p-2 rounded-lg text-lg font-bold" value={editData.stock} onChange={(e) => setEditData({...editData, stock: Number(e.target.value)})} /></div>
-                <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input required type="number" className="w-full border p-2 rounded-lg text-sm" value={editData.costPrice} onChange={(e) => setEditData({...editData, costPrice: Number(e.target.value)})} /></div>
+
+              <div className="mt-4">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="block text-sm font-bold text-gray-700">Variations (Size/Color)</label>
+                  {/* ✅ Add Size/Color বাটন */}
+                  <button type="button" onClick={() => setEditVariations([...editVariations, { id: "", size: "", color: "", stock: 0, costPrice: 0 }])} className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-100 font-medium transition">
+                    <PlusCircle size={14}/> Add Size/Color
+                  </button>
+                </div>
+                
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {editVariations.map((v: any, i: number) => (
+                    <div key={i} className="flex flex-col md:flex-row gap-2 items-center bg-gray-50 p-3 rounded-lg border border-gray-200">
+                      <div className="flex w-full gap-2">
+                        <input placeholder="Size" className="w-1/2 border p-2 rounded-lg text-sm" value={v.size} onChange={(e) => handleVariationChange(i, 'size', e.target.value)} />
+                        <input placeholder="Color" className="w-1/2 border p-2 rounded-lg text-sm" value={v.color} onChange={(e) => handleVariationChange(i, 'color', e.target.value)} />
+                      </div>
+                      <div className="flex w-full gap-2 items-center">
+                        <input placeholder="Stock" type="number" className="w-1/3 border p-2 rounded-lg text-sm" value={v.stock} onChange={(e) => handleVariationChange(i, 'stock', Number(e.target.value))} />
+                        <input placeholder="Cost (৳)" type="number" className="w-1/3 border p-2 rounded-lg text-sm" value={v.costPrice} onChange={(e) => handleVariationChange(i, 'costPrice', Number(e.target.value))} />
+                        {/* ডিলিট বাটন */}
+                        <button type="button" onClick={() => {
+                          if (editVariations.length === 1) {
+                            alert("কমপক্ষে একটি ভ্যারিয়েশন থাকতে হবে।");
+                            return;
+                          }
+                          const newVars = editVariations.filter((_, idx) => idx !== i);
+                          setEditVariations(newVars);
+                        }} className="w-1/3 flex justify-center text-red-500 hover:bg-red-50 p-2 rounded-lg border border-red-100 transition"><Trash2 size={18}/></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="flex justify-end gap-2 pt-3 border-t mt-2">
-                <button type="button" onClick={() => setEditingItem(null)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded-lg text-sm">Save Changes</button>
+
+              <div className="flex justify-end gap-2 pt-4 border-t mt-4">
+                <button type="button" onClick={() => setEditingProduct(null)} className="px-5 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50">Cancel</button>
+                <button type="submit" className="px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 shadow-sm transition">Save Changes</button>
               </div>
             </form>
           </div>
