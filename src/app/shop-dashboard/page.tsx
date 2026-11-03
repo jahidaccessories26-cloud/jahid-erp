@@ -2,9 +2,9 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db, auth } from "../../lib/firebase";
-import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, increment, addDoc, deleteDoc } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, increment } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Package, Folder, ChevronRight, Search, Filter, Edit, Trash2 } from "lucide-react";
+import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Package, Folder, ChevronRight, Search, Edit } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -24,7 +24,25 @@ export default function ShopDashboardPage() {
   const [selectedSub, setSelectedSub] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
-  // অ্যাড/এডিট স্টেট
+  // ✅ ব্রাউজারের ব্যাক বাটন হ্যান্ডেল করার ফাংশন
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      if (viewMode === "product") {
+        setViewMode("sub");
+      } else if (viewMode === "sub") {
+        setViewMode("main");
+      } else if (viewMode === "main") {
+        setViewMode("dashboard");
+      } else {
+        router.push("/");
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [viewMode, router]);
+
+  // মডাল স্টেট
   const [showModal, setShowModal] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
   const [formData, setFormData] = useState<any>({ id: "", name: "", mainCategory: "", subCategory: "", variations: [] });
@@ -77,24 +95,14 @@ export default function ShopDashboardPage() {
   let totalStockValue = 0;
   shopInventories.forEach(item => { totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0); });
 
-  // ✅ মেইন ক্যাটাগরি লিস্ট (Others সহ, যাতে পুরোনো প্রোডাক্টগুলোও দেখা যায়)
   const mainCategories = ["Cotton", "Polestar", "Others"];
+  const subCategories = Array.from(new Set(shopInventories.filter(p => (p.mainCategory || "Others") === selectedMain).map(p => p.subCategory || "Others")));
   
-  // ✅ সাব-ক্যাটাগরি বের করার সময় সেফটি চেক (যাতে এরর না খায়)
-  const subCategories = Array.from(new Set(
-    shopInventories
-      .filter(p => (p.mainCategory || "Others") === selectedMain)
-      .map(p => p.subCategory || "Others")
-  ));
-
   const filteredProducts = shopInventories.filter(p => {
-    if (viewMode === "product") {
-      return (p.mainCategory || "Others") === selectedMain && (p.subCategory || "Others") === selectedSub;
-    }
+    if (viewMode === "product") return (p.mainCategory || "Others") === selectedMain && (p.subCategory || "Others") === selectedSub;
     return true;
   }).filter(p => (p.productName || "").toLowerCase().includes(searchTerm.toLowerCase()));
 
-  // PDF ডাউনলোড
   const downloadPDF = async () => {
     if (shopInventories.length === 0) return alert("ডেটা নেই!");
     const doc = new jsPDF();
@@ -105,7 +113,6 @@ export default function ShopDashboardPage() {
     if (navigator.canShare && navigator.canShare({ files: [file] })) { try { await navigator.share({ files: [file] }); } catch (e) {} } else { doc.save(`Stock.pdf`); }
   };
 
-  // অ্যাড/এডিট ওপেন
   const openAddModal = () => { setIsEdit(false); setFormData({ id: "", name: "", mainCategory: selectedMain, subCategory: selectedSub, variations: [{ size: "", color: "", stock: 0, costPrice: 0 }] }); setShowModal(true); };
   const openEditModal = (item: any) => { setIsEdit(true); setFormData({ id: item.id, name: item.productName, mainCategory: item.mainCategory || "Others", subCategory: item.subCategory || "Others", variations: [{ size: item.size, color: item.color, stock: item.stock, costPrice: item.costPrice }] }); setShowModal(true); };
 
@@ -130,7 +137,12 @@ export default function ShopDashboardPage() {
   return (
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
       <div className="flex items-center gap-3 mb-4">
-        <button onClick={() => viewMode === "dashboard" ? router.push("/") : setViewMode("dashboard")} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
+        <button onClick={() => {
+          if (viewMode === "dashboard") router.push("/");
+          else if (viewMode === "main") setViewMode("dashboard");
+          else if (viewMode === "sub") setViewMode("main");
+          else if (viewMode === "product") setViewMode("sub");
+        }} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
           <ArrowLeft size={20} className="text-gray-600" />
         </button>
         <h2 className="text-xl md:text-2xl font-bold text-brand-navy">
@@ -157,10 +169,16 @@ export default function ShopDashboardPage() {
             <h3 className="text-2xl font-bold text-green-600">৳{totalStockValue.toLocaleString('en-IN')}</h3>
           </div>
           
-          <div onClick={() => setViewMode("main")} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md cursor-pointer flex flex-col items-center justify-center gap-3">
-            <div className="bg-brand-navy/10 p-4 rounded-full"><Package size={40} className="text-brand-navy" /></div>
-            <h3 className="text-xl font-bold text-brand-navy">Stock / Products</h3>
-            <p className="text-sm text-gray-500">Click to view products by category</p>
+          {/* ✅ ছোট এবং সুন্দর Stock ফোল্ডার বাটন */}
+          <div onClick={() => setViewMode("main")} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 hover:shadow-md cursor-pointer flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="bg-brand-navy/10 p-2 rounded-lg"><Folder size={24} className="text-brand-navy" /></div>
+              <div>
+                <h3 className="text-lg font-bold text-brand-navy">Stock / Products</h3>
+                <p className="text-xs text-gray-500">View products by category</p>
+              </div>
+            </div>
+            <ChevronRight size={20} className="text-gray-400" />
           </div>
         </>
       )}
@@ -168,9 +186,9 @@ export default function ShopDashboardPage() {
       {viewMode === "main" && (
         <div className="grid grid-cols-2 gap-4 mt-6">
           {mainCategories.map(cat => (
-            <div key={cat} onClick={() => { setSelectedMain(cat); setViewMode("sub"); }} className="bg-white p-8 rounded-2xl shadow-sm hover:shadow-md cursor-pointer flex flex-col items-center gap-3">
-              <Folder size={40} className="text-brand-navy" />
-              <h3 className="text-xl font-bold text-brand-navy">{cat}</h3>
+            <div key={cat} onClick={() => { setSelectedMain(cat); setViewMode("sub"); }} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md cursor-pointer flex flex-col items-center gap-2">
+              <Folder size={32} className="text-brand-navy" />
+              <h3 className="text-lg font-bold text-brand-navy">{cat}</h3>
             </div>
           ))}
         </div>
@@ -179,7 +197,7 @@ export default function ShopDashboardPage() {
       {viewMode === "sub" && (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           {subCategories.map(sub => (
-            <div key={sub} onClick={() => { setSelectedSub(sub); setViewMode("product"); }} className="bg-white p-4 rounded-xl shadow-sm cursor-pointer flex items-center justify-between">
+            <div key={sub} onClick={() => { setSelectedSub(sub); setViewMode("product"); }} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 cursor-pointer flex items-center justify-between">
               <span className="font-bold text-gray-700">{sub}</span><ChevronRight size={18} className="text-gray-400" />
             </div>
           ))}
