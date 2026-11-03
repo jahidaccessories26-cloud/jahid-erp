@@ -22,20 +22,14 @@ export default function BulkUploadPage() {
     return () => unsub();
   }, [selectedShop]);
 
-  // ✅ নতুন আপডেট: মেইন ক্যাটাগরি এবং সাব-ক্যাটাগরি চেনার ফাংশন
   const parseCategories = (name: string) => {
     const n = name.toLowerCase();
     let mainCategory = "Others";
     let subCategory = "Others";
 
-    // মেইন ক্যাটাগরি চেক
-    if (n.includes("cotton") || n.includes("catton")) {
-      mainCategory = "Cotton";
-    } else if (n.includes("polestar") || n.includes("polertar")) {
-      mainCategory = "Polestar";
-    }
+    if (n.includes("cotton") || n.includes("catton")) mainCategory = "Cotton";
+    else if (n.includes("polestar") || n.includes("polertar")) mainCategory = "Polestar";
 
-    // সাব-ক্যাটাগরি চেক
     if (mainCategory === "Cotton") {
       if (n.includes("solder tape")) subCategory = "Cotton Solder Tape";
       else if (n.includes("file")) subCategory = "Cotton File";
@@ -57,10 +51,8 @@ export default function BulkUploadPage() {
       else if (n.includes("dosting")) subCategory = "Polestar Dosting";
       else subCategory = "Polestar Others";
     } else {
-      // যদি কটন বা পলেস্টার না হয়
       subCategory = name.split(" ").slice(0, 2).join(" ");
     }
-
     return { mainCategory, subCategory };
   };
 
@@ -72,95 +64,93 @@ export default function BulkUploadPage() {
     const lines = rawData.trim().split("\n");
     let count = 0;
 
-    for (const line of lines) {
-      const parts = line.split("\t").map(p => p.trim());
-      if (parts.length < 3) continue;
+    try {
+      // ✅ ১. একবারেই সব ডেটা লোড করা হচ্ছে (রিড বাঁচানোর জন্য)
+      const shopInvSnapshot = await getDocs(query(collection(db, "shop_inventories")));
+      const existingShopItems: any[] = shopInvSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
 
-      const rawName = parts[0];
-      const qty = Number(parts[1]) || 0;
-      const rate = Number(parts[2]) || 0;
-      
-      // ✅ নতুন ক্যাটাগরি পার্সিং
-      const { mainCategory, subCategory } = parseCategories(rawName);
+      const prodSnapshot = await getDocs(query(collection(db, "products")));
+      const existingProducts: any[] = prodSnapshot.docs.map(d => ({ id: d.id, ...d.data() }));
 
-      let size = "";
-      let color = "Unknown";
-      const colors = ["Grey", "White", "Black", "Navy", "Milance", "Zebra", "Red", "Blue", "Green", "Yellow", "Silver", "Cream", "Peach", "Laylon"];
-      
-      const sizeMatch = rawName.match(/(\d+(\.\d+)?\s*(CM|MM|Inch|mm|cm)?|\d+\/\d+)/i);
-      if (sizeMatch) size = sizeMatch[0].toUpperCase();
+      for (const line of lines) {
+        const parts = line.split("\t").map(p => p.trim());
+        if (parts.length < 3) continue;
 
-      for (const c of colors) {
-        if (rawName.toLowerCase().includes(c.toLowerCase())) {
-          color = c;
-          break;
+        const rawName = parts[0];
+        const qty = Number(parts[1]) || 0;
+        const rate = Number(parts[2]) || 0;
+        
+        const { mainCategory, subCategory } = parseCategories(rawName);
+
+        let size = "";
+        let color = "Unknown";
+        const colors = ["Grey", "White", "Black", "Navy", "Milance", "Zebra", "Red", "Blue", "Green", "Yellow", "Silver", "Cream", "Peach", "Laylon"];
+        
+        const sizeMatch = rawName.match(/(\d+(\.\d+)?\s*(CM|MM|Inch|mm|cm)?|\d+\/\d+)/i);
+        if (sizeMatch) size = sizeMatch[0].toUpperCase();
+
+        for (const c of colors) {
+          if (rawName.toLowerCase().includes(c.toLowerCase())) { color = c; break; }
         }
+
+        let productName = subCategory;
+        let extraName = rawName;
+        if (sizeMatch) extraName = extraName.replace(sizeMatch[0], "");
+        extraName = extraName.replace(new RegExp(colors.join("|"), "gi"), "");
+        extraName = extraName.replace(/\(.*\)/g, "").replace(/\s+/g, " ").trim();
+        extraName = extraName.replace(/Colour/i, "").trim();
+        extraName = extraName.replace(new RegExp(subCategory, "gi"), "").trim();
+
+        if (extraName && subCategory !== "Others") {
+           size = `${size} ${extraName}`.trim();
+        }
+
+        const shopInvId = `${selectedShop}_${productName}_${size}_${color}`.replace(/\s+/g, '_').replace(/\//g, '-');
+        
+        // ✅ ২. মেমরি থেকে চেক করা হচ্ছে, ডেটাবেস থেকে নয়
+        const existingShopItem = existingShopItems.find(item => item.id === shopInvId);
+
+        if (existingShopItem) {
+          await updateDoc(doc(db, "shop_inventories", shopInvId), { stock: increment(qty), costPrice: rate });
+        } else {
+          await setDoc(doc(db, "shop_inventories", shopInvId), {
+            shop: selectedShop, productName: productName, category: subCategory, 
+            mainCategory: mainCategory, subCategory: subCategory,
+            size: size || "Unknown", color: color, stock: qty, costPrice: rate
+          });
+          // নতুন অ্যাড হলেও মেমরিতে পুশ করে দিচ্ছি, যাতে পরের লাইনে কাজে লাগে
+          existingShopItems.push({ id: shopInvId, shop: selectedShop, productName, subCategory, size: size || "Unknown", color });
+        }
+
+        const existingProduct = existingProducts.find(d => d.name === productName && d.subCategory === subCategory);
+        
+        if (existingProduct) {
+           let variations = existingProduct.variations || [];
+           let varIdx = variations.findIndex((v:any) => v.size === (size || "Unknown") && v.color === color);
+           if(varIdx >= 0){
+             variations[varIdx].stock += qty;
+             variations[varIdx].costPrice = rate;
+           } else {
+             variations.push({size: size || "Unknown", color, stock: qty, costPrice: rate});
+           }
+           await updateDoc(doc(db, "products", existingProduct.id), { variations });
+        } else {
+           const newProd = await addDoc(collection(db, "products"), {
+              name: productName, category: subCategory, mainCategory: mainCategory, subCategory: subCategory,
+              variations: [{ size: size || "Unknown", color, stock: qty, costPrice: rate }],
+              createdAt: new Date().toISOString()
+           });
+           // মেমরিতে পুশ করা হচ্ছে
+           existingProducts.push({ id: newProd.id, name: productName, subCategory, variations: [{ size: size || "Unknown", color, stock: qty, costPrice: rate }] });
+        }
+        count++;
       }
-
-      let productName = subCategory;
-      let extraName = rawName;
-      if (sizeMatch) extraName = extraName.replace(sizeMatch[0], "");
-      extraName = extraName.replace(new RegExp(colors.join("|"), "gi"), "");
-      extraName = extraName.replace(/\(.*\)/g, "").replace(/\s+/g, " ").trim();
-      extraName = extraName.replace(/Colour/i, "").trim();
-      extraName = extraName.replace(new RegExp(subCategory, "gi"), "").trim();
-
-      if (extraName && subCategory !== "Others") {
-         size = `${size} ${extraName}`.trim();
-      }
-
-      const shopInvId = `${selectedShop}_${productName}_${size}_${color}`.replace(/\s+/g, '_').replace(/\//g, '-');
-      const shopInvRef = doc(db, "shop_inventories", shopInvId);
-      const shopInvSnap = await getDocs(query(collection(db, "shop_inventories"))); 
-      
-      const existingItem = shopInvSnap.docs.find(d => d.id === shopInvId);
-
-      if (existingItem) {
-        await updateDoc(shopInvRef, { stock: increment(qty), costPrice: rate });
-      } else {
-        // ✅ ডেটাবেসে MainCategory এবং SubCategory সেভ হচ্ছে
-        await setDoc(shopInvRef, {
-          shop: selectedShop, 
-          productName: productName, 
-          category: subCategory, 
-          mainCategory: mainCategory, // নতুন ফিল্ড
-          subCategory: subCategory,   // নতুন ফিল্ড
-          size: size || "Unknown", 
-          color: color, 
-          stock: qty, 
-          costPrice: rate
-        });
-      }
-
-      const prodQuery = await getDocs(query(collection(db, "products")));
-      const existingProduct = prodQuery.docs.find(d => d.data().name === productName && d.data().subCategory === subCategory);
-      
-      if (existingProduct) {
-         let variations = existingProduct.data().variations || [];
-         let varIdx = variations.findIndex((v:any) => v.size === (size || "Unknown") && v.color === color);
-         if(varIdx >= 0){
-           variations[varIdx].stock += qty;
-           variations[varIdx].costPrice = rate;
-         } else {
-           variations.push({size: size || "Unknown", color, stock: qty, costPrice: rate});
-         }
-         await updateDoc(doc(db, "products", existingProduct.id), { variations });
-      } else {
-         // ✅ Products কালেকশনেও MainCategory এবং SubCategory সেভ হচ্ছে
-         await addDoc(collection(db, "products"), {
-            name: productName,
-            category: subCategory,
-            mainCategory: mainCategory, // নতুন ফিল্ড
-            subCategory: subCategory,   // নতুন ফিল্ড
-            variations: [{ size: size || "Unknown", color, stock: qty, costPrice: rate }],
-            createdAt: new Date().toISOString()
-         });
-      }
-
-      count++;
+      setMessage(`Success: ${count} টি আইটেম ${selectedShop}-এ সফলভাবে আপলোড হয়েছে!`);
+    } catch (error) {
+      console.error(error);
+      setMessage("Error: আপলোড করতে সমস্যা হয়েছে। ডেটা ফরম্যাট চেক করুন।");
     }
     
-    setMessage(`Success: ${count} টি আইটেম ${selectedShop}-এ সফলভাবে আপলোড হয়েছে!`);
     setLoading(false);
     setRawData("");
   };
