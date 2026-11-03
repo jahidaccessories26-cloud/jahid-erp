@@ -18,17 +18,14 @@ export default function ShopDashboardPage() {
   const [shopInventories, setShopInventories] = useState<any[]>([]);
   const [shopStatements, setShopStatements] = useState<any[]>([]);
 
-  // ভিউ স্টেট
   const [viewMode, setViewMode] = useState<"dashboard" | "main" | "sub" | "product">("dashboard");
   const [selectedMain, setSelectedMain] = useState("");
   const [selectedSub, setSelectedSub] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
 
-  // ✅ ক্যাটাগরি অ্যাড/এডিট স্টেট
   const [showCatModal, setShowCatModal] = useState(false);
   const [catData, setCatData] = useState({ isEdit: false, oldName: "", newName: "" });
 
-  // প্রোডাক্ট অ্যাড/এডিট স্টেট
   const [showModal, setShowModal] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
   const [formData, setFormData] = useState<any>({ id: "", name: "", mainCategory: "", subCategory: "", variations: [] });
@@ -80,27 +77,34 @@ export default function ShopDashboardPage() {
   let totalStockValue = 0;
   shopInventories.forEach(item => { totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0); });
 
-  // ✅ Others বাদ দেওয়া হলো
   const mainCategories = ["Cotton", "Polestar"];
-  
+
+  // ✅ অটোমেটিক ক্যাটাগরি ডিটেকশন (Uncategorized সমস্যার সমাধান)
+  const getCategoryFromName = (item: any) => {
+    const n = (item.productName || "").toLowerCase();
+    if (n.includes("cotton") || n.includes("catton")) return "Cotton";
+    if (n.includes("polestar") || n.includes("polertar")) return "Polestar";
+    return "Cotton"; // ডিফল্টভাবে কটনে দিচ্ছি, যাতে Uncategorized না আসে
+  };
+
   const subCategories = Array.from(new Set(
     shopInventories
       .filter(p => {
-        const main = p.mainCategory || (p.productName?.toLowerCase().includes("cotton") ? "Cotton" : "Polestar");
+        const main = p.mainCategory || getCategoryFromName(p);
         return main === selectedMain;
       })
-      .map(p => p.subCategory || "Uncategorized")
+      .map(p => p.subCategory || p.category || "Uncategorized")
   ));
 
   const filteredProducts = shopInventories.filter(p => {
-    const main = p.mainCategory || (p.productName?.toLowerCase().includes("cotton") ? "Cotton" : "Polestar");
-    const sub = p.subCategory || "Uncategorized";
+    const main = p.mainCategory || getCategoryFromName(p);
+    const sub = p.subCategory || p.category || "Uncategorized";
     
     if (viewMode === "product") return main === selectedMain && sub === selectedSub;
     return true;
   }).filter(p => (p.productName || "").toLowerCase().includes(searchTerm.toLowerCase()));
 
-  // PDF ও শেয়ার
+  // ✅ PDF ডাউনলোড (৳ বাদ দেওয়া হয়েছে)
   const downloadPDF = async () => {
     if (filteredProducts.length === 0) return alert("ডেটা নেই!");
     const doc = new jsPDF();
@@ -109,10 +113,22 @@ export default function ShopDashboardPage() {
     doc.text(viewMode === "product" ? `Category: ${selectedSub}` : "All Categories", 14, 22);
     
     const tableData = filteredProducts.map(item => [
-      item.productName, item.size || "-", item.color || "-", item.stock, `৳${item.costPrice}`, `৳${(item.stock * item.costPrice)}`
+      item.productName, 
+      item.size || "-", 
+      item.color || "-", 
+      item.stock, 
+      item.costPrice || "0", 
+      ((item.stock || 0) * (item.costPrice || 0)).toString()
     ]);
     
-    autoTable(doc, { head: [['Product', 'Size', 'Color', 'Stock', 'Rate', 'Total']], body: tableData, startY: 30 });
+    autoTable(doc, { 
+      head: [['Product', 'Size', 'Color', 'Stock', 'Rate', 'Total']], 
+      body: tableData, 
+      startY: 30,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [31, 45, 92] }
+    });
+
     const pdfBlob = doc.output('blob'); 
     const file = new File([pdfBlob], `Stock_${selectedShop}.pdf`, { type: 'application/pdf' });
     
@@ -123,11 +139,10 @@ export default function ShopDashboardPage() {
     }
   };
 
-  // ক্যাটাগরি ডিলিট
   const handleDeleteCategory = async (catName: string) => {
     if (!window.confirm(`"${catName}" ক্যাটাগরির সব প্রোডাক্ট ডিলিট করতে চান?`)) return;
     try {
-      const itemsToDelete = shopInventories.filter(p => p.subCategory === catName && p.mainCategory === selectedMain);
+      const itemsToDelete = shopInventories.filter(p => (p.subCategory || p.category) === catName);
       for (const item of itemsToDelete) {
         await deleteDoc(doc(db, "shop_inventories", item.id));
       }
@@ -135,7 +150,6 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // প্রোডাক্ট ডিলিট
   const handleDeleteProduct = async (id: string, name: string) => {
     if (!window.confirm(`"${name}" ডিলিট করতে চান?`)) return;
     try {
@@ -143,8 +157,23 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  const openAddModal = () => { setIsEdit(false); setFormData({ id: "", name: "", mainCategory: selectedMain, subCategory: selectedSub, variations: [{ size: "", color: "", stock: 0, costPrice: 0 }] }); setShowModal(true); };
-  const openEditModal = (item: any) => { setIsEdit(true); setFormData({ id: item.id, name: item.productName, mainCategory: item.mainCategory, subCategory: item.subCategory, variations: [{ size: item.size, color: item.color, stock: item.stock, costPrice: item.costPrice }] }); setShowModal(true); };
+  const openAddModal = () => { 
+    setIsEdit(false); 
+    setFormData({ id: "", name: "", mainCategory: selectedMain, subCategory: selectedSub, variations: [{ size: "", color: "", stock: 0, costPrice: 0 }] }); 
+    setShowModal(true); 
+  };
+  
+  const openEditModal = (item: any) => { 
+    setIsEdit(true); 
+    setFormData({ 
+      id: item.id, 
+      name: item.productName, 
+      mainCategory: item.mainCategory || getCategoryFromName(item), 
+      subCategory: item.subCategory || item.category || "Uncategorized", 
+      variations: [{ size: item.size, color: item.color, stock: item.stock, costPrice: item.costPrice }] 
+    }); 
+    setShowModal(true); 
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -168,7 +197,7 @@ export default function ShopDashboardPage() {
     e.preventDefault();
     try {
       if (catData.isEdit) {
-        const itemsToUpdate = shopInventories.filter(item => item.mainCategory === selectedMain && item.subCategory === catData.oldName);
+        const itemsToUpdate = shopInventories.filter(item => (item.subCategory || item.category) === catData.oldName && (item.mainCategory || getCategoryFromName(item)) === selectedMain);
         for (const item of itemsToUpdate) {
           await updateDoc(doc(db, "shop_inventories", item.id), { subCategory: catData.newName, category: catData.newName });
         }
@@ -183,7 +212,6 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // ✅ পেজের ভেতরের ব্যাক বাটন
   const handleBack = () => {
     if (viewMode === "product") setViewMode("sub");
     else if (viewMode === "sub") setViewMode("main");
@@ -203,7 +231,6 @@ export default function ShopDashboardPage() {
           </h2>
         </div>
         
-        {/* PDF বাটন শুধু প্রোডাক্ট বা সাব-ক্যাটাগরি ভিউতে দেখাবে */}
         {viewMode === "product" && (
           <button onClick={downloadPDF} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 shadow-sm">
             <Download size={16} /> PDF / Share
@@ -220,14 +247,14 @@ export default function ShopDashboardPage() {
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-white p-3 rounded-xl border-t-4 border-green-500"><div className="text-xs text-gray-500">Today's Sales</div><h3 className="text-lg font-bold text-green-600">৳{todaySales}</h3></div>
-            <div className="bg-white p-3 rounded-xl border-t-4 border-red-500"><div className="text-xs text-gray-500">Expense</div><h3 className="text-lg font-bold text-red-600">৳{todayExpense}</h3></div>
-            <div className="bg-white p-3 rounded-xl border-t-4 border-blue-500"><div className="text-xs text-gray-500">Purchase</div><h3 className="text-lg font-bold text-blue-600">৳{todayPurchase}</h3></div>
-            <div className="bg-white p-3 rounded-xl border-t-4 border-brand-navy"><div className="text-xs text-gray-500">Profit/Loss</div><h3 className="text-lg font-bold text-brand-navy">৳{profitLoss}</h3></div>
+            <div className="bg-white p-3 rounded-xl border-t-4 border-green-500"><div className="text-xs text-gray-500">Today's Sales</div><h3 className="text-lg font-bold text-green-600">{todaySales}</h3></div>
+            <div className="bg-white p-3 rounded-xl border-t-4 border-red-500"><div className="text-xs text-gray-500">Expense</div><h3 className="text-lg font-bold text-red-600">{todayExpense}</h3></div>
+            <div className="bg-white p-3 rounded-xl border-t-4 border-blue-500"><div className="text-xs text-gray-500">Purchase</div><h3 className="text-lg font-bold text-blue-600">{todayPurchase}</h3></div>
+            <div className="bg-white p-3 rounded-xl border-t-4 border-brand-navy"><div className="text-xs text-gray-500">Profit/Loss</div><h3 className="text-lg font-bold text-brand-navy">{profitLoss}</h3></div>
           </div>
           <div className="bg-white p-4 rounded-xl border-t-4 border-green-500 mb-6">
             <div className="text-sm text-gray-500">Total Stock Value</div>
-            <h3 className="text-2xl font-bold text-green-600">৳{totalStockValue.toLocaleString('en-IN')}</h3>
+            <h3 className="text-2xl font-bold text-green-600">{totalStockValue.toLocaleString('en-IN')}</h3>
           </div>
           
           <div onClick={() => setViewMode("main")} className="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md cursor-pointer flex items-center justify-between">
@@ -268,7 +295,6 @@ export default function ShopDashboardPage() {
               <div key={sub} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
                 <span className="font-bold text-gray-700 text-sm cursor-pointer" onClick={() => { setSelectedSub(sub); setViewMode("product"); }}>{sub}</span>
                 <div className="flex gap-1">
-                  {/* ✅ ডিলিট বাটন */}
                   <button onClick={() => handleDeleteCategory(sub)} className="text-red-500 p-1 hover:bg-red-50 rounded"><Trash2 size={14} /></button>
                 </div>
               </div>
@@ -312,7 +338,6 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* মডালসমূহ (Add/Edit Product, Add Category) */}
       {showCatModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
