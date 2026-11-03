@@ -4,7 +4,9 @@ import { useState, useEffect } from "react";
 import { db, auth } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, getDoc, updateDoc } from "firebase/firestore";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Package, Search, ArrowLeft, Store, Edit, X, DollarSign, Filter } from "lucide-react";
+import { Package, Search, ArrowLeft, Store, Edit, X, DollarSign, Filter, Download, FileSpreadsheet } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 export default function ShopDashboardPage() {
   const searchParams = useSearchParams();
@@ -133,9 +135,8 @@ export default function ShopDashboardPage() {
           costPrice: Number(editPrice)
         });
       } else {
-        // যদি আগে থেকে ইনভেন্টরিতে না থাকে, তবে নতুন তৈরি হবে
         const { setDoc } = await import("firebase/firestore");
-        const newId = `${selectedShop}_${editingItem.productName}_${editingItem.size}_${editingItem.color}`.replace(/\s+/g, '_');
+        const newId = `${selectedShop}_${editingItem.productName}_${editingItem.size}_${editingItem.color}`.replace(/\s+/g, '_').replace(/\//g, '-');
         await setDoc(doc(db, "shop_inventories", newId), {
           shop: selectedShop,
           productName: editingItem.productName,
@@ -154,16 +155,73 @@ export default function ShopDashboardPage() {
     }
   };
 
+  // ✅ PDF ডাউনলোড
+  const downloadPDF = async () => {
+    if (displayList.length === 0) { alert("ডেটা নেই!"); return; }
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text(`Shop Report - ${selectedShop}`, 14, 15);
+    doc.setFontSize(10);
+    doc.text(`Total Stock: ${totalStockQty} pcs | Value: BDT ${totalStockValue}`, 14, 22);
+
+    const tableData = displayList.map(item => [
+      item.productName, 
+      item.size === "Unknown" ? "-" : item.size, 
+      item.color === "Unknown" ? "-" : item.color, 
+      item.stock, `৳${item.price}`, `৳${item.value}`
+    ]);
+
+    autoTable(doc, {
+      head: [['Product', 'Size', 'Color', 'Stock', 'Rate', 'Value']],
+      body: tableData, startY: 28, styles: { fontSize: 8 }, headStyles: { fillColor: [31, 45, 92] },
+    });
+
+    const pdfBlob = doc.output('blob');
+    const file = new File([pdfBlob], `${selectedShop}_Report.pdf`, { type: 'application/pdf' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'Shop Report' }); } catch (e) {}
+    } else { doc.save(`${selectedShop}_Report.pdf`); }
+  };
+
+  // ✅ Excel (CSV) ডাউনলোড
+  const downloadCSV = () => {
+    if (displayList.length === 0) { alert("ডেটা নেই!"); return; }
+    let csvContent = "Product,Size,Color,Stock,Rate,Value\n";
+    displayList.forEach(item => {
+      const size = (item.size === "Unknown" ? "-" : item.size).replace(/,/g, " ");
+      const color = (item.color === "Unknown" ? "-" : item.color).replace(/,/g, " ");
+      csvContent += `${item.productName.replace(/,/g, " ")},${size},${color},${item.stock},${item.price},${item.value}\n`;
+    });
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${selectedShop}_Report.csv`;
+    link.click();
+  };
+
   if (loading) return <div className="flex items-center justify-center h-screen font-bold text-brand-navy">Loading...</div>;
 
   return (
     <div className="max-w-6xl mx-auto pb-10">
       {/* হেডার */}
-      <div className="flex items-center gap-3 mb-4">
-        <button onClick={() => router.push("/")} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
-          <ArrowLeft size={20} className="text-gray-600" />
-        </button>
-        <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Shop Dashboard</h2>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => router.push("/")} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
+            <ArrowLeft size={20} className="text-gray-600" />
+          </button>
+          <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Shop Dashboard</h2>
+        </div>
+        
+        {/* ✅ নতুন ডাউনলোড বাটন */}
+        <div className="flex gap-2 w-full md:w-auto">
+          <button onClick={downloadCSV} className="flex-1 md:flex-none justify-center bg-green-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 hover:bg-green-700 transition shadow-sm">
+            <FileSpreadsheet size={16} /> Excel
+          </button>
+          <button onClick={downloadPDF} className="flex-1 md:flex-none justify-center bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 hover:bg-brand-navy/90 transition shadow-sm">
+            <Download size={16} /> PDF / Share
+          </button>
+        </div>
       </div>
 
       <div className="bg-brand-navy text-white px-4 py-3 rounded-xl shadow-md mb-4 flex items-center gap-3">
@@ -174,40 +232,40 @@ export default function ShopDashboardPage() {
         </div>
       </div>
 
-      {/* সামারি কার্ড */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 mb-6">
+      {/* সামারি কার্ড (আজকের হিসাব) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 mb-4">
         <div className="bg-white p-3 rounded-xl shadow-sm border-t-4 border-green-500">
           <p className="text-[10px] text-gray-500 mb-1">Today's Sales</p>
-          <h3 className="text-base font-bold text-green-600">৳{todaySales.toLocaleString('en-IN')}</h3>
+          <h3 className="text-sm md:text-base font-bold text-green-600 truncate">৳{todaySales.toLocaleString('en-IN')}</h3>
         </div>
         <div className="bg-white p-3 rounded-xl shadow-sm border-t-4 border-red-500">
           <p className="text-[10px] text-gray-500 mb-1">Today's Expense</p>
-          <h3 className="text-base font-bold text-red-600">৳{todayExpense.toLocaleString('en-IN')}</h3>
+          <h3 className="text-sm md:text-base font-bold text-red-600 truncate">৳{todayExpense.toLocaleString('en-IN')}</h3>
         </div>
         <div className="bg-white p-3 rounded-xl shadow-sm border-t-4 border-blue-500">
           <p className="text-[10px] text-gray-500 mb-1">Today's Purchase</p>
-          <h3 className="text-base font-bold text-blue-600">৳{todayPurchase.toLocaleString('en-IN')}</h3>
+          <h3 className="text-sm md:text-base font-bold text-blue-600 truncate">৳{todayPurchase.toLocaleString('en-IN')}</h3>
         </div>
         <div className={`bg-white p-3 rounded-xl shadow-sm border-t-4 ${todayProfit >= 0 ? 'border-brand-navy' : 'border-orange-500'}`}>
           <p className="text-[10px] text-gray-500 mb-1">Profit/Loss</p>
-          <h3 className={`text-base font-bold ${todayProfit >= 0 ? 'text-brand-navy' : 'text-orange-600'}`}>৳{todayProfit.toLocaleString('en-IN')}</h3>
+          <h3 className={`text-sm md:text-base font-bold truncate ${todayProfit >= 0 ? 'text-brand-navy' : 'text-orange-600'}`}>৳{todayProfit.toLocaleString('en-IN')}</h3>
         </div>
       </div>
 
-      {/* স্টক সামারি */}
-      <div className="grid grid-cols-2 gap-2 md:gap-4 mb-6">
-        <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
+      {/* স্টক সামারি (✅ এখানে লেখা কাটার সমস্যা ঠিক করা হয়েছে) */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="bg-white p-4 rounded-xl shadow-sm border-t-4 border-blue-500 flex items-center gap-3">
           <div className="bg-blue-50 p-2 rounded-lg"><Package size={20} className="text-blue-600"/></div>
-          <div>
-            <p className="text-[10px] text-gray-500">Total Stock</p>
-            <h3 className="text-base font-bold text-brand-navy">{totalStockQty} pcs</h3>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-gray-500 mb-1">Total Stock</p>
+            <h3 className="text-base md:text-lg font-bold text-brand-navy truncate">{Math.round(totalStockQty).toLocaleString('en-IN')} pcs</h3>
           </div>
         </div>
-        <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center gap-3">
+        <div className="bg-white p-4 rounded-xl shadow-sm border-t-4 border-green-500 flex items-center gap-3">
           <div className="bg-green-50 p-2 rounded-lg"><DollarSign size={20} className="text-green-600"/></div>
-          <div>
-            <p className="text-[10px] text-gray-500">Total Value</p>
-            <h3 className="text-base font-bold text-brand-navy">৳{totalStockValue.toLocaleString('en-IN')}</h3>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-gray-500 mb-1">Total Value</p>
+            <h3 className="text-base md:text-lg font-bold text-green-600 truncate">৳{totalStockValue.toLocaleString('en-IN')}</h3>
           </div>
         </div>
       </div>
@@ -240,27 +298,26 @@ export default function ShopDashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {displayList.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">কোনো প্রোডাক্ট পাওয়া যায়নি।</td></tr>
-              )}
+              {displayList.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">কোনো প্রোডাক্ট পাওয়া যায়নি।</td></tr>}
               {displayList.map((item, idx) => (
                 <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
                   <td className="px-3 py-3">
                     <div className="font-bold text-brand-navy text-xs md:text-sm">{item.productName}</div>
                     <div className="text-[10px] text-gray-500 mb-1">{item.category}</div>
-                    <div className="text-[10px] text-gray-700 bg-gray-100 inline-block px-1.5 py-0.5 rounded">{item.size} / {item.color}</div>
+                    {/* ✅ Unknown ফিল্টার করা হয়েছে */}
+                    <div className="text-[10px] text-gray-700 bg-gray-100 inline-block px-1.5 py-0.5 rounded">
+                      {item.size && item.size !== "Unknown" ? item.size : ""} 
+                      {item.color && item.color !== "Unknown" ? ` / ${item.color}` : ""}
+                      {(!item.size || item.size === "Unknown") && (!item.color || item.color === "Unknown") ? "Standard" : ""}
+                    </div>
                   </td>
                   <td className="px-3 py-3 text-center">
-                    <span className={`inline-block px-2 py-1 rounded-lg font-bold text-xs ${item.stock > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
-                      {item.stock}
-                    </span>
+                    <span className={`inline-block px-2 py-1 rounded-lg font-bold text-xs ${item.stock > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>{item.stock}</span>
                   </td>
                   <td className="px-3 py-3 text-right font-medium text-gray-700">৳{item.price}</td>
                   <td className="px-3 py-3 text-right font-bold text-brand-navy">৳{item.value.toLocaleString('en-IN')}</td>
                   <td className="px-3 py-3 text-center">
-                    <button onClick={() => handleEditClick(item)} className="bg-blue-50 text-blue-600 p-1.5 rounded-lg hover:bg-blue-100 transition">
-                      <Edit size={16} />
-                    </button>
+                    <button onClick={() => handleEditClick(item)} className="bg-blue-50 text-blue-600 p-1.5 rounded-lg hover:bg-blue-100 transition"><Edit size={16} /></button>
                   </td>
                 </tr>
               ))}
