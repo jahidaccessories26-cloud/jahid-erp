@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy, doc, updateDoc, deleteDoc } from "firebase/firestore";
-import { Package, Search, Edit, Trash2, X, PlusCircle, Download } from "lucide-react";
+import { Package, Search, Edit, Trash2, X, PlusCircle, Download, FileSpreadsheet } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -80,6 +80,41 @@ export default function ProductsPage() {
     }
   };
 
+  // ✅ নতুন ফাংশন: Excel (CSV) ডাউনলোড
+  const downloadCSV = () => {
+    if (filteredProducts.length === 0) {
+      alert("ডাউনলোড করার জন্য কোনো প্রোডাক্ট নেই!");
+      return;
+    }
+
+    // CSV এর জন্য হেডার
+    let csvContent = "Category,Product,Size,Color,Stock,Cost Price\n";
+    
+    // ডেটা লুপ
+    filteredProducts.forEach(p => {
+      p.variations?.forEach((v: any) => {
+        // কমা (,) থাকলে সেটা যেন CSV ফরম্যাট নষ্ট না করে
+        const cat = (p.category || "N/A").replace(/,/g, " ");
+        const name = (p.name || "N/A").replace(/,/g, " ");
+        const size = (v.size || "-").replace(/,/g, " ");
+        const color = (v.color || "-").replace(/,/g, " ");
+        
+        csvContent += `${cat},${name},${size},${color},${v.stock || 0},${v.costPrice || 0}\n`;
+      });
+    });
+
+    // ফাইল তৈরি ও ডাউনলোড
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Product_Backup_${Date.now()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   // এডিট ওপেন করার ফাংশন
   const openEdit = (product: any) => {
     setEditData(JSON.parse(JSON.stringify(product)));
@@ -104,14 +139,14 @@ export default function ProductsPage() {
     }
   };
 
-  // ভ্যারিয়েশন চেঞ্জ
+  // ভ্যারিয়েশন (সাইজ/কালার) চেঞ্জ করার ফাংশন
   const handleVariationChange = (index: number, field: string, value: any) => {
     const newVariations = [...editData.variations];
     newVariations[index][field] = value;
     setEditData({ ...editData, variations: newVariations });
   };
 
-  // নতুন ভ্যারিয়েশন (সাইজ/কালার) যোগ
+  // নতুন ভ্যারিয়েশন (সাইজ/কালার) যোগ করার ফাংশন
   const addVariation = () => {
     setEditData({
       ...editData,
@@ -119,13 +154,13 @@ export default function ProductsPage() {
     });
   };
 
-  // ভ্যারিয়েশন ডিলিট
+  // ভ্যারিয়েশন ডিলিট করার ফাংশন
   const removeVariation = (index: number) => {
     const newVariations = editData.variations.filter((_: any, i: number) => i !== index);
     setEditData({ ...editData, variations: newVariations });
   };
 
-  // পুরো প্রোডাক্ট ডিলিট
+  // পুরো প্রোডাক্ট ডিলিট করার ফাংশন
   const handleDeleteProduct = async (id: string, name: string) => {
     if (window.confirm(`আপনি কি নিশ্চিত "${name}" প্রোডাক্টটি ডিলিট করতে চান?`)) {
       try {
@@ -140,11 +175,18 @@ export default function ProductsPage() {
 
   return (
     <div className="max-w-6xl mx-auto pb-10">
-      <div className="flex justify-between items-center mb-4 gap-2">
+      <div className="flex justify-between items-center mb-4 gap-2 flex-wrap">
         <h2 className="text-2xl font-bold text-brand-navy">Products</h2>
-        <button onClick={downloadPDF} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 hover:bg-brand-navy/90 transition shadow-sm">
-          <Download size={16} /> PDF / Share
-        </button>
+        
+        {/* ✅ নতুন ডাউনলোড বাটনসমূহ */}
+        <div className="flex gap-2">
+          <button onClick={downloadCSV} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 hover:bg-green-700 transition shadow-sm">
+            <FileSpreadsheet size={16} /> Excel
+          </button>
+          <button onClick={downloadPDF} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 hover:bg-brand-navy/90 transition shadow-sm">
+            <Download size={16} /> PDF / Share
+          </button>
+        </div>
       </div>
 
       {message && (
@@ -208,7 +250,7 @@ export default function ProductsPage() {
         {filteredProducts.length === 0 && <div className="col-span-2 text-center py-10 text-gray-500">কোনো প্রোডাক্ট পাওয়া যায়নি।</div>}
       </div>
 
-      {/* ✅ নতুন এডিট মডাল (পপ-আপ) */}
+      {/* ✅ এডিট মডাল (পপ-আপ) */}
       {showEditModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -232,7 +274,9 @@ export default function ProductsPage() {
               <div className="mt-4">
                 <div className="flex justify-between items-center mb-2">
                   <label className="block text-sm font-bold text-gray-700">Variations (Size/Color)</label>
-                  <button type="button" onClick={addVariation} className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-100 font-medium transition"><PlusCircle size={14}/> Add Size/Color</button>
+                  <button type="button" onClick={addVariation} className="text-xs bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-blue-100 font-medium transition">
+                    <PlusCircle size={14}/> Add Size/Color
+                  </button>
                 </div>
                 
                 <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
