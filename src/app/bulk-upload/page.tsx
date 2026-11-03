@@ -2,7 +2,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
-import { collection, addDoc, getDocs, doc, updateDoc, setDoc, increment, query, orderBy, onSnapshot } from "firebase/firestore";
+import { collection, addDoc, getDocs, doc, updateDoc, setDoc, increment, query, onSnapshot } from "firebase/firestore";
 import { Upload, CheckCircle, AlertCircle } from "lucide-react";
 
 export default function BulkUploadPage() {
@@ -10,11 +10,9 @@ export default function BulkUploadPage() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   
-  // ✅ নতুন স্টেট: দোকান সিলেক্ট করার জন্য
   const [shops, setShops] = useState<any[]>([]);
   const [selectedShop, setSelectedShop] = useState("");
 
-  // ফায়ারবেস থেকে দোকানের লিস্ট লোড করা
   useEffect(() => {
     const unsub = onSnapshot(query(collection(db, "shops")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
@@ -24,29 +22,46 @@ export default function BulkUploadPage() {
     return () => unsub();
   }, [selectedShop]);
 
-  const getCategory = (name: string) => {
+  // ✅ নতুন আপডেট: মেইন ক্যাটাগরি এবং সাব-ক্যাটাগরি চেনার ফাংশন
+  const parseCategories = (name: string) => {
     const n = name.toLowerCase();
-    if (n.includes("cotton file")) return "Cotton File";
-    if (n.includes("cotton loop")) return "Cotton Loop";
-    if (n.includes("silk loop")) return "Silk Loop";
-    if (n.includes("polestar loop")) return "Polestar Loop";
-    if (n.includes("tar loop")) return "Tar Loop";
-    if (n.includes("lup")) return "Lup";
-    if (n.includes("drow cot")) return "Drow Cot";
-    if (n.includes("geza")) return "Geza";
-    if (n.includes("tube") || n.includes("catton tube")) return "Cotton Tube";
-    if (n.includes("dosting")) return "Cotton Dosting";
-    if (n.includes("label")) return "Cotton Label";
-    if (n.includes("tape") && !n.includes("bright")) return "Cotton Tape";
-    if (n.includes("polertar") || n.includes("polestar tube")) return "Polestar Tube";
-    if (n.includes("polestar")) return "Polestar Dosting";
-    if (n.includes("canvas")) return "Canvas";
-    if (n.includes("bright")) return "Bright Tape";
-    if (n.includes("tar")) return "Tar File";
-    
-    const words = name.split(" ");
-    if (words.length >= 2) return words.slice(0, 2).join(" ");
-    return "Others";
+    let mainCategory = "Others";
+    let subCategory = "Others";
+
+    // মেইন ক্যাটাগরি চেক
+    if (n.includes("cotton") || n.includes("catton")) {
+      mainCategory = "Cotton";
+    } else if (n.includes("polestar") || n.includes("polertar")) {
+      mainCategory = "Polestar";
+    }
+
+    // সাব-ক্যাটাগরি চেক
+    if (mainCategory === "Cotton") {
+      if (n.includes("solder tape")) subCategory = "Cotton Solder Tape";
+      else if (n.includes("file")) subCategory = "Cotton File";
+      else if (n.includes("label")) subCategory = "Cotton Label";
+      else if (n.includes("tape")) subCategory = "Cotton Tape";
+      else if (n.includes("canvas")) subCategory = "Cotton Canvas";
+      else if (n.includes("loop")) subCategory = "Cotton Loop";
+      else if (n.includes("lup")) subCategory = "Cotton Lup";
+      else if (n.includes("beni")) subCategory = "Cotton Beni";
+      else if (n.includes("rubber dosting") || n.includes("ra dosting")) subCategory = "Cotton Rubber Dosting";
+      else if (n.includes("dosting")) subCategory = "Cotton Dosting";
+      else if (n.includes("tube")) subCategory = "Cotton Tube";
+      else subCategory = "Cotton Others";
+    } else if (mainCategory === "Polestar") {
+      if (n.includes("loop")) subCategory = "Polestar Loop";
+      else if (n.includes("canvas")) subCategory = "Polestar Canvas";
+      else if (n.includes("tube")) subCategory = "Polestar Tube";
+      else if (n.includes("label")) subCategory = "Polestar Label";
+      else if (n.includes("dosting")) subCategory = "Polestar Dosting";
+      else subCategory = "Polestar Others";
+    } else {
+      // যদি কটন বা পলেস্টার না হয়
+      subCategory = name.split(" ").slice(0, 2).join(" ");
+    }
+
+    return { mainCategory, subCategory };
   };
 
   const handleProcess = async () => {
@@ -64,7 +79,9 @@ export default function BulkUploadPage() {
       const rawName = parts[0];
       const qty = Number(parts[1]) || 0;
       const rate = Number(parts[2]) || 0;
-      const category = getCategory(rawName);
+      
+      // ✅ নতুন ক্যাটাগরি পার্সিং
+      const { mainCategory, subCategory } = parseCategories(rawName);
 
       let size = "";
       let color = "Unknown";
@@ -80,35 +97,34 @@ export default function BulkUploadPage() {
         }
       }
 
-      let productName = category;
+      let productName = subCategory;
       let extraName = rawName;
       if (sizeMatch) extraName = extraName.replace(sizeMatch[0], "");
       extraName = extraName.replace(new RegExp(colors.join("|"), "gi"), "");
       extraName = extraName.replace(/\(.*\)/g, "").replace(/\s+/g, " ").trim();
       extraName = extraName.replace(/Colour/i, "").trim();
-      extraName = extraName.replace(new RegExp(category, "gi"), "").trim();
+      extraName = extraName.replace(new RegExp(subCategory, "gi"), "").trim();
 
-      if (extraName && category !== "Others") {
+      if (extraName && subCategory !== "Others") {
          size = `${size} ${extraName}`.trim();
       }
 
-      // ✅ দোকানের ইনভেন্টরি আইডি তৈরি (যেমন: Sadoghat_ProductId_Size_Color)
       const shopInvId = `${selectedShop}_${productName}_${size}_${color}`.replace(/\s+/g, '_').replace(/\//g, '-');
       const shopInvRef = doc(db, "shop_inventories", shopInvId);
-      const shopInvSnap = await getDocs(query(collection(db, "shop_inventories"))); // চেক করার জন্য
+      const shopInvSnap = await getDocs(query(collection(db, "shop_inventories"))); 
       
-      // চেক করা হচ্ছে আগে থেকেই এই প্রোডাক্ট আছে কি না
       const existingItem = shopInvSnap.docs.find(d => d.id === shopInvId);
 
       if (existingItem) {
-        // থাকলে স্টক ও দাম আপডেট হবে
         await updateDoc(shopInvRef, { stock: increment(qty), costPrice: rate });
       } else {
-        // না থাকলে নতুন করে যোগ হবে
+        // ✅ ডেটাবেসে MainCategory এবং SubCategory সেভ হচ্ছে
         await setDoc(shopInvRef, {
           shop: selectedShop, 
           productName: productName, 
-          category: category,
+          category: subCategory, 
+          mainCategory: mainCategory, // নতুন ফিল্ড
+          subCategory: subCategory,   // নতুন ফিল্ড
           size: size || "Unknown", 
           color: color, 
           stock: qty, 
@@ -116,12 +132,11 @@ export default function BulkUploadPage() {
         });
       }
 
-      // Products কালেকশনেও ডেটা অ্যাড করা (যাতে ওয়্যারহাউস বা অন্যান্য জায়গায় কাজে লাগে)
       const prodQuery = await getDocs(query(collection(db, "products")));
-      const existingProduct = prodQuery.docs.find(d => d.data().name === productName && d.data().category === category);
+      const existingProduct = prodQuery.docs.find(d => d.data().name === productName && d.data().subCategory === subCategory);
       
       if (existingProduct) {
-         let variations = existingProduct.data().variations;
+         let variations = existingProduct.data().variations || [];
          let varIdx = variations.findIndex((v:any) => v.size === (size || "Unknown") && v.color === color);
          if(varIdx >= 0){
            variations[varIdx].stock += qty;
@@ -131,9 +146,12 @@ export default function BulkUploadPage() {
          }
          await updateDoc(doc(db, "products", existingProduct.id), { variations });
       } else {
+         // ✅ Products কালেকশনেও MainCategory এবং SubCategory সেভ হচ্ছে
          await addDoc(collection(db, "products"), {
             name: productName,
-            category: category,
+            category: subCategory,
+            mainCategory: mainCategory, // নতুন ফিল্ড
+            subCategory: subCategory,   // নতুন ফিল্ড
             variations: [{ size: size || "Unknown", color, stock: qty, costPrice: rate }],
             createdAt: new Date().toISOString()
          });
@@ -153,7 +171,6 @@ export default function BulkUploadPage() {
       
       <div className="bg-white p-4 rounded-xl shadow-md border-t-4 border-brand-navy mb-4">
         
-        {/* ✅ দোকান সিলেক্ট করার ড্রপডাউন */}
         <div className="mb-4">
           <label className="block text-sm font-medium mb-1">Select Shop (দোকান সিলেক্ট করুন)</label>
           <select 
