@@ -17,11 +17,8 @@ export default function ShopDashboardPage() {
   
   const [shopInventories, setShopInventories] = useState<any[]>([]);
   const [shopStatements, setShopStatements] = useState<any[]>([]);
-  
-  // ✅ ক্যাটাগরি ডেটাবেস থেকে লোড করার জন্য
-  const [dbCategories, setDbCategories] = useState<any[]>([]);
 
-  // ✅ ভিউ স্টেট
+  // ভিউ স্টেট
   const [viewMode, setViewMode] = useState<"dashboard" | "main" | "sub" | "product">("dashboard");
   const [selectedMain, setSelectedMain] = useState("");
   const [selectedSub, setSelectedSub] = useState("");
@@ -31,10 +28,6 @@ export default function ShopDashboardPage() {
   const [showModal, setShowModal] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
   const [formData, setFormData] = useState<any>({ id: "", name: "", mainCategory: "", subCategory: "", variations: [] });
-
-  // ✅ নতুন ক্যাটাগরি অ্যাড করার স্টেট
-  const [showCatModal, setShowCatModal] = useState(false);
-  const [newCatName, setNewCatName] = useState("");
 
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(async (user) => {
@@ -59,13 +52,7 @@ export default function ShopDashboardPage() {
       setShops(data);
       if (data.length > 0 && !selectedShop) setSelectedShop(data[0].name);
     });
-    
-    // ক্যাটাগরি লোড করা
-    const unsubCats = onSnapshot(query(collection(db, "categories")), (snapshot) => {
-      setDbCategories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    });
-
-    return () => { unsubShops(); unsubCats(); };
+    return () => unsubShops();
   }, [selectedShop]);
 
   useEffect(() => {
@@ -90,32 +77,24 @@ export default function ShopDashboardPage() {
   let totalStockValue = 0;
   shopInventories.forEach(item => { totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0); });
 
-  // ✅ ফোল্ডার ফিল্টারিং (ডেটাবেসের ক্যাটাগরি + প্রোডাক্টের ক্যাটাগরি একসাথে)
-  const mainCategories = ["Cotton", "Polestar"];
+  // ✅ মেইন ক্যাটাগরি লিস্ট (Others সহ, যাতে পুরোনো প্রোডাক্টগুলোও দেখা যায়)
+  const mainCategories = ["Cotton", "Polestar", "Others"];
   
-  const dbSubCats = dbCategories.filter(c => c.mainCategory === selectedMain).map(c => c.subCategory);
-  const invSubCats = shopInventories.filter(p => p.mainCategory === selectedMain).map(p => p.subCategory || "Others");
-  const subCategories = Array.from(new Set([...invSubCats, ...dbSubCats]));
+  // ✅ সাব-ক্যাটাগরি বের করার সময় সেফটি চেক (যাতে এরর না খায়)
+  const subCategories = Array.from(new Set(
+    shopInventories
+      .filter(p => (p.mainCategory || "Others") === selectedMain)
+      .map(p => p.subCategory || "Others")
+  ));
 
   const filteredProducts = shopInventories.filter(p => {
-    if (viewMode === "product") return p.mainCategory === selectedMain && (p.subCategory || "Others") === selectedSub;
-    return true;
-  }).filter(p => p.productName.toLowerCase().includes(searchTerm.toLowerCase()));
-
-  // ✅ ব্যাক নেভিগেশন ফিক্স
-  const handleBack = () => {
     if (viewMode === "product") {
-      setViewMode("sub");
-    } else if (viewMode === "sub") {
-      setViewMode("main");
-    } else if (viewMode === "main") {
-      setViewMode("dashboard");
-    } else {
-      router.push("/");
+      return (p.mainCategory || "Others") === selectedMain && (p.subCategory || "Others") === selectedSub;
     }
-  };
+    return true;
+  }).filter(p => (p.productName || "").toLowerCase().includes(searchTerm.toLowerCase()));
 
-  // PDF
+  // PDF ডাউনলোড
   const downloadPDF = async () => {
     if (shopInventories.length === 0) return alert("ডেটা নেই!");
     const doc = new jsPDF();
@@ -128,14 +107,14 @@ export default function ShopDashboardPage() {
 
   // অ্যাড/এডিট ওপেন
   const openAddModal = () => { setIsEdit(false); setFormData({ id: "", name: "", mainCategory: selectedMain, subCategory: selectedSub, variations: [{ size: "", color: "", stock: 0, costPrice: 0 }] }); setShowModal(true); };
-  const openEditModal = (item: any) => { setIsEdit(true); setFormData({ id: item.id, name: item.productName, mainCategory: item.mainCategory, subCategory: item.subCategory, variations: [{ size: item.size, color: item.color, stock: item.stock, costPrice: item.costPrice }] }); setShowModal(true); };
+  const openEditModal = (item: any) => { setIsEdit(true); setFormData({ id: item.id, name: item.productName, mainCategory: item.mainCategory || "Others", subCategory: item.subCategory || "Others", variations: [{ size: item.size, color: item.color, stock: item.stock, costPrice: item.costPrice }] }); setShowModal(true); };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       if (isEdit) {
         await updateDoc(doc(db, "shop_inventories", formData.id), {
-          productName: formData.name, size: formData.variations[0].size, color: formData.variations[0].color, stock: Number(formData.variations[0].stock), costPrice: Number(formData.variations[0].costPrice)
+          productName: formData.name, mainCategory: formData.mainCategory, subCategory: formData.subCategory, size: formData.variations[0].size, color: formData.variations[0].color, stock: Number(formData.variations[0].stock), costPrice: Number(formData.variations[0].costPrice)
         });
       } else {
         const shopInvId = `${selectedShop}_${formData.name}_${formData.variations[0].size}_${formData.variations[0].color}`.replace(/\s+/g, '_').replace(/\//g, '-');
@@ -148,28 +127,10 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // ✅ নতুন ক্যাটাগরি সেভ করা
-  const handleAddCategory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCatName.trim()) return;
-    try {
-      await addDoc(collection(db, "categories"), {
-        mainCategory: selectedMain,
-        subCategory: newCatName.trim()
-      });
-      setShowCatModal(false);
-      setNewCatName("");
-      alert("Success: নতুন ক্যাটাগরি যোগ হয়েছে!");
-    } catch (error) {
-      alert("ক্যাটাগরি অ্যাড করতে সমস্যা হয়েছে!");
-    }
-  };
-
   return (
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
       <div className="flex items-center gap-3 mb-4">
-        {/* ✅ ঠিক করা ব্যাক বাটন */}
-        <button onClick={handleBack} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
+        <button onClick={() => viewMode === "dashboard" ? router.push("/") : setViewMode("dashboard")} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
           <ArrowLeft size={20} className="text-gray-600" />
         </button>
         <h2 className="text-xl md:text-2xl font-bold text-brand-navy">
@@ -222,18 +183,12 @@ export default function ShopDashboardPage() {
               <span className="font-bold text-gray-700">{sub}</span><ChevronRight size={18} className="text-gray-400" />
             </div>
           ))}
-          
-          {/* ✅ নতুন ক্যাটাগরি অ্যাড করার বাটন */}
-          <div onClick={() => setShowCatModal(true)} className="bg-blue-50 p-4 rounded-xl border border-blue-200 border-dashed cursor-pointer flex items-center justify-center gap-2 hover:bg-blue-100 transition">
-            <PlusCircle size={20} className="text-blue-600" />
-            <span className="font-bold text-blue-600">Add Category</span>
-          </div>
         </div>
       )}
 
       {viewMode === "product" && (
         <div>
-          <div className="flex justify-between items-center mb-4 gap-2">
+          <div className="flex justify-between items-center mb-4">
             <div className="bg-white p-2 rounded-lg border flex items-center gap-2 w-full max-w-xs">
               <Search size={16} className="text-gray-400" />
               <input type="text" placeholder="Search..." className="outline-none text-sm w-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
@@ -259,14 +214,12 @@ export default function ShopDashboardPage() {
                     </td>
                   </tr>
                 ))}
-                {filteredProducts.length === 0 && <tr><td colSpan={3} className="text-center py-4 text-gray-500">এই ক্যাটাগরিতে কোনো প্রোডাক্ট নেই।</td></tr>}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* Add/Edit Product Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
@@ -284,25 +237,6 @@ export default function ShopDashboardPage() {
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ✅ Add Category Modal */}
-      {showCatModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-4">Add New Category</h3>
-            <form onSubmit={handleAddCategory} className="space-y-3">
-              <div>
-                <label className="text-xs">Category Name (e.g. Cotton Thread)</label>
-                <input required autoFocus className="w-full border p-2 rounded" value={newCatName} onChange={e => setNewCatName(e.target.value)} />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setShowCatModal(false)} className="px-4 py-2 border rounded">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Add Category</button>
               </div>
             </form>
           </div>
