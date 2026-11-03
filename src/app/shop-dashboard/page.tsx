@@ -4,25 +4,25 @@ import { useState, useEffect } from "react";
 import { db, auth } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, increment } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Store, ArrowLeft, Download, PlusCircle, DollarSign, Package, X } from "lucide-react";
+import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 export default function ShopDashboardPage() {
   const router = useRouter();
   
-  const [userRole, setUserRole] = useState("manager");
-  const [selectedShop, setSelectedShop] = useState(""); // অ্যাডমিনের ক্ষেত্রে ডিফল্ট দোকান
+  const [userRole, setUserRole] = useState("admin");
+  const [selectedShop, setSelectedShop] = useState(""); // ডিফল্টে খালি থাকবে
   
+  const [shops, setShops] = useState<any[]>([]); // দোকানের লিস্ট রাখার জন্য
   const [shopInventories, setShopInventories] = useState<any[]>([]);
   const [shopStatements, setShopStatements] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
 
   // অ্যাড প্রোডাক্ট স্টেট
   const [showAddModal, setShowAddModal] = useState(false);
   const [addData, setAddData] = useState({ productName: "", category: "", size: "", color: "", stock: 0, costPrice: 0 });
 
-  // ইউজার ও ডেটা লোড
+  // ইউজার চেক
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(async (user) => {
       if (user && user.email) {
@@ -32,7 +32,10 @@ export default function ShopDashboardPage() {
           const docSnap = await getDoc(doc(db, "users", user.email));
           if (docSnap.exists()) {
             setUserRole(docSnap.data().role || "manager");
-            setSelectedShop(docSnap.data().assignedShop || "");
+            // ম্যানেজার হলে তার অ্যাসাইন করা দোকান সেট হবে
+            if (docSnap.data().assignedShop) {
+              setSelectedShop(docSnap.data().assignedShop);
+            }
           }
         }
       }
@@ -40,13 +43,27 @@ export default function ShopDashboardPage() {
     return () => unsubAuth();
   }, []);
 
+  // ✅ নতুন লজিক: অ্যাডমিনের জন্য দোকানের লিস্ট লোড করা এবং ডিফল্ট দোকান সিলেক্ট করা
   useEffect(() => {
-    if (!selectedShop) return; // দোকান সিলেক্ট না হলে ডেটা লোড হবে না
+    const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
+      setShops(data);
+      
+      // যদি অ্যাডমিন হয় এবং কোনো দোকান সিলেক্ট করা না থাকে, তবে প্রথম দোকানটা অটো সিলেক্ট হবে
+      if (data.length > 0 && !selectedShop) {
+        setSelectedShop(data[0].name);
+      }
+    });
+    return () => unsubShops();
+  }, [selectedShop]);
+
+  // ডেটা লোড (দোকান সিলেক্ট হলে)
+  useEffect(() => {
+    if (!selectedShop) return;
 
     const unsubInv = onSnapshot(query(collection(db, "shop_inventories")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setShopInventories(data.filter(item => item.shop === selectedShop));
-      setLoading(false);
     });
 
     const unsubStatements = onSnapshot(query(collection(db, "shop_statements")), (snapshot) => {
@@ -57,20 +74,20 @@ export default function ShopDashboardPage() {
     return () => { unsubInv(); unsubStatements(); };
   }, [selectedShop]);
 
-  // হিসাবপত্র
+  // আজকের হিসাব
   const todayStr = new Date().toISOString().split("T")[0];
   const todaySales = shopStatements.filter(s => s.type === 'Sales' && s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
   const todayExpense = shopStatements.filter(s => s.type === 'Expense' && s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
   const todayPurchase = shopStatements.filter(s => s.type === 'Purchase' && s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
   const profitLoss = todaySales - (todayExpense + todayPurchase);
 
-  // ✅ টোটাল ভ্যালু (Pcs বাদ দেওয়া হয়েছে)
+  // টোটাল ভ্যালু
   let totalStockValue = 0;
   shopInventories.forEach(item => {
     totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0);
   });
 
-  // ✅ PDF ডাউনলোড ফাংশন
+  // PDF ডাউনলোড ফাংশন
   const downloadPDF = async () => {
     if (shopInventories.length === 0) {
       alert("ডাউনলোড করার জন্য কোনো ডেটা নেই!");
@@ -109,7 +126,7 @@ export default function ShopDashboardPage() {
     }
   };
 
-  // ✅ নতুন প্রোডাক্ট অ্যাড ফাংশন
+  // নতুন প্রোডাক্ট অ্যাড ফাংশন
   const handleAddItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedShop) { alert("দোকান সিলেক্ট করা নেই!"); return; }
@@ -138,10 +155,6 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("প্রোডাক্ট অ্যাড করতে সমস্যা হয়েছে!"); }
   };
 
-  if (!selectedShop) {
-    return <div className="text-center py-20 text-gray-500">দয়া করে ড্যাশবোর্ড থেকে একটি দোকান সিলেক্ট করুন।</div>;
-  }
-
   return (
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
       
@@ -164,13 +177,18 @@ export default function ShopDashboardPage() {
         </div>
       </div>
 
-      {/* দোকানের নাম */}
-      <div className="bg-brand-navy text-white px-4 py-3 rounded-xl shadow-md mb-4 flex items-center gap-3">
-        <Store size={24} />
-        <div>
-          <p className="text-[10px] text-gray-300 uppercase tracking-wider">Shop</p>
-          <h3 className="font-bold text-lg">{selectedShop}</h3>
-        </div>
+      {/* ✅ দোকান সিলেক্ট ড্রপডাউন (এখান থেকেই দোকান বদলাতে পারবেন) */}
+      <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
+        <Store size={18} className="text-brand-navy ml-2" />
+        <select 
+          className="w-full bg-transparent outline-none text-sm font-bold text-brand-navy py-2 cursor-pointer" 
+          value={selectedShop} 
+          onChange={(e) => setSelectedShop(e.target.value)}
+        >
+          {shops.map((shop) => (
+            <option key={shop.id} value={shop.name}>{shop.name}</option>
+          ))}
+        </select>
       </div>
 
       {/* আজকের হিসাব */}
@@ -193,7 +211,7 @@ export default function ShopDashboardPage() {
         </div>
       </div>
 
-      {/* ✅ শুধু টোটাল ভ্যালু কার্ড (Pcs বাদ) */}
+      {/* টোটাল ভ্যালু কার্ড (শুধু ভ্যালু) */}
       <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border-t-4 border-green-500 mb-6">
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-1">
           <DollarSign size={16}/> Total Stock Value
@@ -203,7 +221,7 @@ export default function ShopDashboardPage() {
         </h3>
       </div>
 
-      {/* ✅ নতুন প্রোডাক্ট অ্যাড মডাল */}
+      {/* নতুন প্রোডাক্ট অ্যাড মডাল */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
