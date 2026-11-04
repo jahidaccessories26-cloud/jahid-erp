@@ -79,11 +79,12 @@ export default function ShopDashboardPage() {
 
   const mainCategories = ["Cotton", "Polestar"];
 
+  // ✅ অটোমেটিক ক্যাটাগরি ডিটেকশন (Uncategorized সমস্যার সমাধান)
   const getCategoryFromName = (item: any) => {
     const n = (item.productName || "").toLowerCase();
     if (n.includes("cotton") || n.includes("catton")) return "Cotton";
     if (n.includes("polestar") || n.includes("polertar")) return "Polestar";
-    return "Cotton"; 
+    return "Cotton"; // ডিফল্টভাবে কটনে দিচ্ছি, যাতে Uncategorized না আসে
   };
 
   const subCategories = Array.from(new Set(
@@ -103,6 +104,7 @@ export default function ShopDashboardPage() {
     return true;
   }).filter(p => (p.productName || "").toLowerCase().includes(searchTerm.toLowerCase()));
 
+  // ✅ PDF ডাউনলোড (৳ বাদ দেওয়া হয়েছে)
   const downloadPDF = async () => {
     if (filteredProducts.length === 0) return alert("ডেটা নেই!");
     const doc = new jsPDF();
@@ -111,31 +113,48 @@ export default function ShopDashboardPage() {
     doc.text(viewMode === "product" ? `Category: ${selectedSub}` : "All Categories", 14, 22);
     
     const tableData = filteredProducts.map(item => [
-      item.productName, item.size || "-", item.color || "-", item.stock, item.costPrice || "0", ((item.stock || 0) * (item.costPrice || 0)).toString()
+      item.productName, 
+      item.size || "-", 
+      item.color || "-", 
+      item.stock, 
+      item.costPrice || "0", 
+      ((item.stock || 0) * (item.costPrice || 0)).toString()
     ]);
     
-    autoTable(doc, { head: [['Product', 'Size', 'Color', 'Stock', 'Rate', 'Total']], body: tableData, startY: 30, styles: { fontSize: 8 }, headStyles: { fillColor: [31, 45, 92] } });
+    autoTable(doc, { 
+      head: [['Product', 'Size', 'Color', 'Stock', 'Rate', 'Total']], 
+      body: tableData, 
+      startY: 30,
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [31, 45, 92] }
+    });
 
     const pdfBlob = doc.output('blob'); 
     const file = new File([pdfBlob], `Stock_${selectedShop}.pdf`, { type: 'application/pdf' });
     
     if (navigator.canShare && navigator.canShare({ files: [file] })) { 
       try { await navigator.share({ files: [file], title: 'Stock Report' }); } catch (e) {} 
-    } else { doc.save(`Stock_${selectedShop}.pdf`); }
+    } else { 
+      doc.save(`Stock_${selectedShop}.pdf`); 
+    }
   };
 
   const handleDeleteCategory = async (catName: string) => {
     if (!window.confirm(`"${catName}" ক্যাটাগরির সব প্রোডাক্ট ডিলিট করতে চান?`)) return;
     try {
       const itemsToDelete = shopInventories.filter(p => (p.subCategory || p.category) === catName);
-      for (const item of itemsToDelete) { await deleteDoc(doc(db, "shop_inventories", item.id)); }
+      for (const item of itemsToDelete) {
+        await deleteDoc(doc(db, "shop_inventories", item.id));
+      }
       alert("ক্যাটাগরি ডিলিট হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
   const handleDeleteProduct = async (id: string, name: string) => {
     if (!window.confirm(`"${name}" ডিলিট করতে চান?`)) return;
-    try { await deleteDoc(doc(db, "shop_inventories", id)); } catch (error) { alert("সমস্যা হয়েছে!"); }
+    try {
+      await deleteDoc(doc(db, "shop_inventories", id));
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
   const openAddModal = () => { 
@@ -146,7 +165,13 @@ export default function ShopDashboardPage() {
   
   const openEditModal = (item: any) => { 
     setIsEdit(true); 
-    setFormData({ id: item.id, name: item.productName, mainCategory: item.mainCategory || getCategoryFromName(item), subCategory: item.subCategory || item.category || "Uncategorized", variations: [{ size: item.size, color: item.color, stock: item.stock, costPrice: item.costPrice }] }); 
+    setFormData({ 
+      id: item.id, 
+      name: item.productName, 
+      mainCategory: item.mainCategory || getCategoryFromName(item), 
+      subCategory: item.subCategory || item.category || "Uncategorized", 
+      variations: [{ size: item.size, color: item.color, stock: item.stock, costPrice: item.costPrice }] 
+    }); 
     setShowModal(true); 
   };
 
@@ -173,7 +198,9 @@ export default function ShopDashboardPage() {
     try {
       if (catData.isEdit) {
         const itemsToUpdate = shopInventories.filter(item => (item.subCategory || item.category) === catData.oldName && (item.mainCategory || getCategoryFromName(item)) === selectedMain);
-        for (const item of itemsToUpdate) { await updateDoc(doc(db, "shop_inventories", item.id), { subCategory: catData.newName, category: catData.newName }); }
+        for (const item of itemsToUpdate) {
+          await updateDoc(doc(db, "shop_inventories", item.id), { subCategory: catData.newName, category: catData.newName });
+        }
       } else {
         const shopInvId = `${selectedShop}_${selectedMain}_${catData.newName}_Category`.replace(/\s+/g, '_');
         await setDoc(doc(db, "shop_inventories", shopInvId), {
@@ -276,7 +303,6 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* ✅ আগের মতো সুন্দর কার্ড ডিজাইন */}
       {viewMode === "product" && (
         <div>
           <div className="flex justify-between items-center mb-4 gap-2">
@@ -287,29 +313,27 @@ export default function ShopDashboardPage() {
             <button onClick={openAddModal} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 whitespace-nowrap"><PlusCircle size={16}/> Add Product</button>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredProducts.map((item) => (
-              <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
-                <div className="flex justify-between items-start mb-3 border-b pb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="bg-brand-navy/10 p-1.5 rounded-lg"><Package className="text-brand-navy" size={20} /></div>
-                    <div>
-                      <h3 className="text-base font-bold text-brand-navy">{item.productName}</h3>
-                      <div className="text-[10px] text-gray-700 bg-gray-100 inline-block px-1.5 py-0.5 rounded mt-1">{item.size} / {item.color}</div>
-                    </div>
-                  </div>
-                  <div className="flex gap-1">
-                    <button onClick={() => openEditModal(item)} className="bg-blue-50 text-blue-600 p-2 rounded-lg hover:bg-blue-100 transition"><Edit size={16} /></button>
-                    <button onClick={() => handleDeleteProduct(item.id, item.productName)} className="bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100 transition"><Trash2 size={16} /></button>
-                  </div>
-                </div>
-                
-                <div className="flex justify-between items-center pt-2 mt-auto text-sm">
-                  <div className="text-gray-500">Stock: <span className="font-bold text-green-600">{item.stock}</span></div>
-                  <div className="text-gray-500">Rate: <span className="font-bold text-brand-navy">৳{item.costPrice}</span></div>
-                </div>
-              </div>
-            ))}
+          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+            <table className="w-full text-left text-xs md:text-sm">
+              <thead className="bg-gray-100 text-gray-600">
+                <tr><th className="px-2 py-3">Product</th><th className="px-2 py-3 text-center">Stock</th><th className="px-2 py-3 text-center">Action</th></tr>
+              </thead>
+              <tbody>
+                {filteredProducts.map(item => (
+                  <tr key={item.id} className="border-b">
+                    <td className="px-2 py-3">
+                      <div className="font-bold text-brand-navy">{item.productName}</div>
+                      <div className="text-[10px] text-gray-500">{item.size} / {item.color}</div>
+                    </td>
+                    <td className="px-2 py-3 text-center font-bold text-green-600">{item.stock}</td>
+                    <td className="px-2 py-3 text-center flex justify-center gap-2">
+                      <button onClick={() => openEditModal(item)} className="p-1 text-blue-600 bg-blue-50 rounded"><Edit size={14} /></button>
+                      <button onClick={() => handleDeleteProduct(item.id, item.productName)} className="p-1 text-red-600 bg-red-50 rounded"><Trash2 size={14} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
