@@ -25,17 +25,19 @@ export default function ShopDashboardPage() {
   const [selectedMain, setSelectedMain] = useState("");
   const [selectedSub, setSelectedSub] = useState("");
   const [selectedBuyer, setSelectedBuyer] = useState<any>(null);
-  const [searchTerm, setSearchTerm] = useState("");
+
+  // সার্চ স্টেট (ড্রপডাউনের বদলে)
+  const [prodSearch, setProdSearch] = useState("");
 
   // ডেইলি এন্ট্রি স্টেট
   const [showDailyEntry, setShowDailyEntry] = useState(false);
-  const [dailyEntryData, setDailyEntryData] = useState({ type: "Sale", title: "", amount: "", productId: "", qty: "" });
+  const [dailyEntryData, setDailyEntryData] = useState({ type: "Sale", title: "", amount: "", productId: "", qty: "", expenseType: "Shop Expense" });
   
   // বায়ার স্টেট
   const [showBuyerModal, setShowBuyerModal] = useState(false);
   const [buyerFormData, setBuyerFormData] = useState({ id: "", name: "", phone: "" });
 
-  // অর্ডার/ডেলিভারি/পেমেন্ট মডাল স্টেট (এডিটের জন্য isEditOrder)
+  // অর্ডার/ডেলিভারি/পেমেন্ট স্টেট
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [isEditOrder, setIsEditOrder] = useState(false);
   const [orderData, setOrderData] = useState({ id: "", garments: "", orderNo: "", styleNo: "", productId: "", qty: "", amount: "" });
@@ -99,6 +101,11 @@ export default function ShopDashboardPage() {
   let totalStockValue = 0;
   shopInventories.forEach(item => { totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0); });
 
+  // সার্চ করা প্রোডাক্ট
+  const searchedProducts = shopInventories.filter(p => 
+    p.productName.toLowerCase().includes(prodSearch.toLowerCase())
+  ).slice(0, 10); // প্রথম ১০টা দেখাবে
+
   // ডেইলি এন্ট্রি সেভ
   const handleDailyEntrySave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,14 +117,16 @@ export default function ShopDashboardPage() {
           await updateDoc(doc(db, "shop_inventories", prod.id), { stock: Math.max(0, prod.stock - qty) });
         }
       }
+      const finalTitle = dailyEntryData.type === 'Expense' ? `${dailyEntryData.expenseType}: ${dailyEntryData.title}` : dailyEntryData.title;
+      
       await addDoc(collection(db, "shop_statements"), {
-        shop: selectedShop, type: dailyEntryData.type, title: dailyEntryData.title, amount: Number(dailyEntryData.amount), date: new Date().toISOString(), createdAt: new Date().toISOString()
+        shop: selectedShop, type: dailyEntryData.type, title: finalTitle, amount: Number(dailyEntryData.amount), date: new Date().toISOString(), createdAt: new Date().toISOString()
       });
-      setShowDailyEntry(false); setDailyEntryData({ type: "Sale", title: "", amount: "", productId: "", qty: "" }); alert("সেভ হয়েছে!");
+      setShowDailyEntry(false); setDailyEntryData({ type: "Sale", title: "", amount: "", productId: "", qty: "", expenseType: "Shop Expense" }); alert("সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // বায়ার সেভ (অ্যাড/এডিট)
+  // বায়ার সেভ
   const handleBuyerSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -130,7 +139,7 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // অর্ডার/ডেলিভারি সেভ (অ্যাড/এডিট)
+  // অর্ডার/ডেলিভারি সেভ
   const handleOrderSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -141,9 +150,7 @@ export default function ShopDashboardPage() {
         await updateDoc(doc(db, "buyer_orders", orderData.id), {
           garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, productId: orderData.productId, productName: prodName, qty: Number(orderData.qty), amount: Number(orderData.amount)
         });
-        alert("আপডেট হয়েছে!");
       } else {
-        // স্টক কমানো (নতুন ডেলিভারি হলে)
         if (prod) {
            await updateDoc(doc(db, "shop_inventories", prod.id), { stock: Math.max(0, prod.stock - Number(orderData.qty)) });
         }
@@ -152,32 +159,27 @@ export default function ShopDashboardPage() {
           garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, productId: orderData.productId, productName: prodName, qty: Number(orderData.qty), amount: Number(orderData.amount), 
           type: "Delivery", date: new Date().toISOString()
         });
-        alert("নতুন ডেলিভারি যোগ হয়েছে!");
       }
-      setShowOrderModal(false); setOrderData({ id: "", garments: "", orderNo: "", styleNo: "", productId: "", qty: "", amount: "" });
+      setShowOrderModal(false); setOrderData({ id: "", garments: "", orderNo: "", styleNo: "", productId: "", qty: "", amount: "" }); setProdSearch(""); alert("সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // পেমেন্ট সেভ (অ্যাড/এডিট)
+  // পেমেন্ট সেভ
   const handlePaymentSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       if (isEditPayment) {
-        await updateDoc(doc(db, "buyer_orders", paymentData.id), {
-           amount: Number(paymentData.amount), details: paymentData.details, orderNoRef: paymentData.orderNoRef
-        });
-        alert("পেমেন্ট আপডেট হয়েছে!");
+        await updateDoc(doc(db, "buyer_orders", paymentData.id), { amount: Number(paymentData.amount), details: paymentData.details, orderNoRef: paymentData.orderNoRef });
       } else {
         await addDoc(collection(db, "buyer_orders"), {
           shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, type: "Payment", amount: Number(paymentData.amount), details: paymentData.details, orderNoRef: paymentData.orderNoRef, date: new Date().toISOString()
         });
-        alert("পেমেন্ট যোগ হয়েছে!");
       }
-      setShowPaymentModal(false); setPaymentData({ id: "", amount: "", details: "", orderNoRef: "" });
+      setShowPaymentModal(false); setPaymentData({ id: "", amount: "", details: "", orderNoRef: "" }); alert("সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // ডিলিট ফাংশনসমূহ
+  // ডিলিট
   const deleteStatement = async (id: string) => { if(window.confirm("ডিলিট করবেন?")) await deleteDoc(doc(db, "shop_statements", id)); };
   const deleteBuyer = async (id: string) => { if(window.confirm("বায়ার ডিলিট করবেন?")) await deleteDoc(doc(db, "buyers", id)); };
   const deleteOrder = async (id: string) => { if(window.confirm("লেনদেন ডিলিট করবেন?")) await deleteDoc(doc(db, "buyer_orders", id)); };
@@ -189,7 +191,6 @@ export default function ShopDashboardPage() {
 
   return (
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
-      {/* হেডার */}
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
           <button onClick={() => {
@@ -207,7 +208,7 @@ export default function ShopDashboardPage() {
         </div>
       </div>
 
-      {/* ড্যাশবোর্ড ভিউ */}
+      {/* ড্যাশবোর্ড */}
       {viewMode === "dashboard" && (
         <>
           <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
@@ -293,7 +294,7 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* বায়ার স্টেটমেন্ট (খাতা) */}
+      {/* বায়ার স্টেটমেন্ট */}
       {viewMode === "buyer_statement" && selectedBuyer && (
         <div>
           <div className="grid grid-cols-3 gap-2 mb-4">
@@ -371,7 +372,7 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* মডালসমূহ */}
+      {/* Daily Entry Modal (সার্চ সহ) */}
       {showDailyEntry && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
@@ -384,21 +385,35 @@ export default function ShopDashboardPage() {
                   <option value="Purchase">Purchase (ক্রয়)</option>
                 </select>
               </div>
+              
               {dailyEntryData.type === "Sale" && (
                 <>
-                  <div><label className="text-xs font-medium">Search Product</label>
-                    <select required className="w-full border p-2 rounded" value={dailyEntryData.productId} onChange={e => {
-                      const p = shopInventories.find(i => i.id === e.target.value);
-                      setDailyEntryData({...dailyEntryData, productId: e.target.value, title: p ? p.productName : "", amount: (p ? p.costPrice : 0).toString()});
-                    }}>
-                      <option value="">-- Search & Select --</option>
-                      {shopInventories.map(p => <option key={p.id} value={p.id}>{p.productName} ({p.size}/{p.color})</option>)}
-                    </select>
+                  <div>
+                    <label className="text-xs font-medium">Search Product</label>
+                    <input type="text" placeholder="Type product name..." className="w-full border p-2 rounded mb-1" value={prodSearch} onChange={e => setProdSearch(e.target.value)} />
+                    <div className="max-h-24 overflow-y-auto border rounded bg-gray-50">
+                      {searchedProducts.map(p => (
+                        <div key={p.id} onClick={() => { setDailyEntryData({...dailyEntryData, productId: p.id, title: p.productName, amount: p.costPrice.toString()}); setProdSearch(""); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50">{p.productName} ({p.size}/{p.color}) - Stock: {p.stock}</div>
+                      ))}
+                      {searchedProducts.length === 0 && prodSearch && <div className="p-2 text-xs text-gray-500">No product found</div>}
+                    </div>
                   </div>
                   <div><label className="text-xs font-medium">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={dailyEntryData.qty} onChange={e => setDailyEntryData({...dailyEntryData, qty: e.target.value})} /></div>
                 </>
               )}
-              <div><label className="text-xs">Title</label><input required className="w-full border p-2 rounded" value={dailyEntryData.title} onChange={e => setDailyEntryData({...dailyEntryData, title: e.target.value})} /></div>
+
+              {dailyEntryData.type === "Expense" && (
+                <div><label className="text-xs font-medium">Expense Category</label>
+                  <select className="w-full border p-2 rounded" value={dailyEntryData.expenseType} onChange={e => setDailyEntryData({...dailyEntryData, expenseType: e.target.value})}>
+                    <option value="Shop Expense">দোকান খরচ</option>
+                    <option value="Bank Deposit">ব্যাংকে জমা</option>
+                    <option value="Party Payment">পার্টি পেমেন্ট</option>
+                    <option value="Transport">যাতায়াত</option>
+                  </select>
+                </div>
+              )}
+
+              <div><label className="text-xs">Title/Note</label><input required className="w-full border p-2 rounded" value={dailyEntryData.title} onChange={e => setDailyEntryData({...dailyEntryData, title: e.target.value})} /></div>
               <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={dailyEntryData.amount} onChange={e => setDailyEntryData({...dailyEntryData, amount: e.target.value})} /></div>
               <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowDailyEntry(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button></div>
             </form>
@@ -406,6 +421,7 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
+      {/* Buyer Modal */}
       {showBuyerModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
@@ -419,6 +435,7 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
+      {/* Order Modal (সার্চ সহ) */}
       {showOrderModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
@@ -429,39 +446,11 @@ export default function ShopDashboardPage() {
                 <div><label className="text-xs">Order No</label><input required className="w-full border p-2 rounded" value={orderData.orderNo} onChange={e => setOrderData({...orderData, orderNo: e.target.value})} /></div>
                 <div><label className="text-xs">Style No</label><input required className="w-full border p-2 rounded" value={orderData.styleNo} onChange={e => setOrderData({...orderData, styleNo: e.target.value})} /></div>
               </div>
-              <div><label className="text-xs font-medium">Search Product</label>
-                <select required className="w-full border p-2 rounded" value={orderData.productId} onChange={e => {
-                  const p = shopInventories.find(i => i.id === e.target.value);
-                  setOrderData({...orderData, productId: e.target.value, amount: (p ? p.costPrice : 0).toString()});
-                }}>
-                  <option value="">-- Search & Select --</option>
-                  {shopInventories.map(p => <option key={p.id} value={p.id}>{p.productName} ({p.size}/{p.color})</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={orderData.qty} onChange={e => setOrderData({...orderData, qty: e.target.value})} /></div>
-                <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={orderData.amount} onChange={e => setOrderData({...orderData, amount: e.target.value})} /></div>
-              </div>
-              <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowOrderModal(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button></div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showPaymentModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-4">{isEditPayment ? "Edit Payment" : "Add Payment"}</h3>
-            <form onSubmit={handlePaymentSave} className="space-y-3">
-              <div><label className="text-xs">Order No Ref (Optional)</label><input className="w-full border p-2 rounded" value={paymentData.orderNoRef} onChange={e => setPaymentData({...paymentData, orderNoRef: e.target.value})} /></div>
-              <div><label className="text-xs">Details (Note)</label><input className="w-full border p-2 rounded" value={paymentData.details} onChange={e => setPaymentData({...paymentData, details: e.target.value})} /></div>
-              <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={paymentData.amount} onChange={e => setPaymentData({...paymentData, amount: e.target.value})} /></div>
-              <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowPaymentModal(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-green-600 text-white rounded">Save</button></div>
-            </form>
-          </div>
-        </div>
-      )}
-
-    </div>
-  );
-}
+              <div>
+                <label className="text-xs font-medium">Search Product</label>
+                <input type="text" placeholder="Type product name..." className="w-full border p-2 rounded mb-1" value={prodSearch} onChange={e => setProdSearch(e.target.value)} />
+                <div className="max-h-24 overflow-y-auto border rounded bg-gray-50">
+                  {searchedProducts.map(p => (
+                    <div key={p.id} onClick={() => { setOrderData({...orderData, productId: p.id, amount: p.costPrice.toString()}); setProdSearch(""); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50">{p.productName} ({p.size}/{p.color}) - Stock: {p.stock}</div>
+                  ))}
+                  {searchedProducts.length === 0 && prodSearch && <div className="p-2 text-xs text-gray-500">No product found</div>}
