@@ -30,6 +30,10 @@ export default function ShopDashboardPage() {
   // সার্চ স্টেট
   const [prodSearch, setProdSearch] = useState("");
 
+  // ✅ প্রোডাক্ট এডিট স্টেট (নতুন)
+  const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [editProdData, setEditProdData] = useState({ stock: 0, costPrice: 0 });
+
   // ডেইলি এন্ট্রি স্টেট
   const [showDailyEntry, setShowDailyEntry] = useState(false);
   const [dailyEntryData, setDailyEntryData] = useState({ type: "Sale", title: "", amount: "", productId: "", qty: "", expenseType: "Shop Expense" });
@@ -113,6 +117,56 @@ export default function ShopDashboardPage() {
     p.productName.toLowerCase().includes(prodSearch.toLowerCase())
   ).slice(0, 5);
 
+  // ✅ প্রোডাক্ট এডিট ফাংশন
+  const openEditProduct = (item: any) => {
+    setEditingProduct(item);
+    setEditProdData({ stock: item.stock, costPrice: item.costPrice });
+  };
+
+  const handleUpdateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProduct) return;
+    try {
+      await updateDoc(doc(db, "shop_inventories", editingProduct.id), {
+        stock: Number(editProdData.stock),
+        costPrice: Number(editProdData.costPrice)
+      });
+      setEditingProduct(null);
+      alert("প্রোডাক্ট আপডেট হয়েছে!");
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
+  };
+
+  // ✅ প্রোডাক্ট ডিলিট ফাংশন
+  const deleteProduct = async (id: string, name: string) => {
+    if (window.confirm(`"${name}" ডিলিট করতে চান?`)) {
+      await deleteDoc(doc(db, "shop_inventories", id));
+    }
+  };
+
+  // ✅ ক্যাটাগরি Share ফাংশন
+  const handleShareCategory = () => {
+    const catProducts = shopInventories.filter(p => p.mainCategory === selectedMain && p.subCategory === selectedSub);
+    if (catProducts.length === 0) return alert("ডেটা নেই!");
+    
+    const doc = new jsPDF();
+    doc.setFontSize(16); doc.text(`${selectedSub} - ${selectedShop}`, 14, 15);
+    
+    const tableData = catProducts.map(item => [
+      item.productName, item.size || "-", item.color || "-", item.stock, item.costPrice.toString()
+    ]);
+    
+    autoTable(doc, { head: [['Product', 'Size', 'Color', 'Stock', 'Rate']], body: tableData, startY: 25 });
+    
+    const pdfBlob = doc.output('blob'); 
+    const file = new File([pdfBlob], `${selectedSub}_Stock.pdf`, { type: 'application/pdf' });
+    
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: selectedSub }).catch(console.error);
+    } else {
+      doc.save(`${selectedSub}_Stock.pdf`);
+    }
+  };
+
   // বায়ার সেভ
   const handleBuyerSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,76 +180,53 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // অর্ডার সেভ
+  // অর্ডার/ডেলিভারি/পেমেন্ট সেভ
   const handleOrderSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (orderData.items.length === 0) return alert("কমপক্ষে একটি আইটেম যোগ করুন!");
     try {
-      if (isEditOrder) {
-        await updateDoc(doc(db, "buyer_orders", orderData.id), { garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, items: orderData.items });
-      } else {
-        await addDoc(collection(db, "buyer_orders"), {
-          shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, 
-          garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, items: orderData.items, 
-          type: "Order", date: new Date().toISOString()
-        });
-      }
-      setShowOrderModal(false); setOrderData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); alert("অর্ডার সেভ হয়েছে!");
+      if (isEditOrder) await updateDoc(doc(db, "buyer_orders", orderData.id), { items: orderData.items });
+      else await addDoc(collection(db, "buyer_orders"), {
+        shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, items: orderData.items, type: "Order", date: new Date().toISOString()
+      });
+      setShowOrderModal(false); setOrderData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); alert("সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // ডেলিভারি সেভ
   const handleDeliverySave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (deliveryData.items.length === 0) return alert("কমপক্ষে একটি আইটেম যোগ করুন!");
     try {
       for (const item of deliveryData.items) {
         const prod = shopInventories.find(p => p.id === item.productId);
-        if (!prod || prod.stock < Number(item.qty)) {
-          return alert(`${item.productName} এর স্টক পর্যাপ্ত নয়! (আছে: ${prod?.stock || 0})`);
-        }
+        if (!prod || prod.stock < Number(item.qty)) return alert(`${item.productName} এর স্টক নেই!`);
       }
-
-      if (isEditDelivery) {
-        await updateDoc(doc(db, "buyer_orders", deliveryData.id), { garments: deliveryData.garments, orderNo: deliveryData.orderNo, styleNo: deliveryData.styleNo, items: deliveryData.items });
-      } else {
-        for (const item of deliveryData.items) {
-           await updateDoc(doc(db, "shop_inventories", item.productId), { stock: increment(-Number(item.qty)) });
-        }
+      if (isEditDelivery) await updateDoc(doc(db, "buyer_orders", deliveryData.id), { items: deliveryData.items });
+      else {
+        for (const item of deliveryData.items) await updateDoc(doc(db, "shop_inventories", item.productId), { stock: increment(-Number(item.qty)) });
         await addDoc(collection(db, "buyer_orders"), {
-          shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, 
-          garments: deliveryData.garments, orderNo: deliveryData.orderNo, styleNo: deliveryData.styleNo, items: deliveryData.items, 
-          type: "Delivery", date: new Date().toISOString()
+          shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, garments: deliveryData.garments, orderNo: deliveryData.orderNo, styleNo: deliveryData.styleNo, items: deliveryData.items, type: "Delivery", date: new Date().toISOString()
         });
       }
-      setShowDeliveryModal(false); setDeliveryData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); alert("ডেলিভারি সেভ হয়েছে!");
+      setShowDeliveryModal(false); setDeliveryData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); alert("সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // পেমেন্ট সেভ
   const handlePaymentSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (isEditPayment) {
-        await updateDoc(doc(db, "buyer_orders", paymentData.id), { amount: Number(paymentData.amount), details: paymentData.details, orderNoRef: paymentData.orderNoRef });
-      } else {
-        await addDoc(collection(db, "buyer_orders"), {
-          shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, type: "Payment", amount: Number(paymentData.amount), details: paymentData.details, orderNoRef: paymentData.orderNoRef, date: new Date().toISOString()
-        });
-      }
-      setShowPaymentModal(false); setPaymentData({ id: "", amount: "", details: "", orderNoRef: "" }); alert("পেমেন্ট সেভ হয়েছে!");
+      if (isEditPayment) await updateDoc(doc(db, "buyer_orders", paymentData.id), { amount: Number(paymentData.amount) });
+      else await addDoc(collection(db, "buyer_orders"), {
+        shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, type: "Payment", amount: Number(paymentData.amount), details: paymentData.details, orderNoRef: paymentData.orderNoRef, date: new Date().toISOString()
+      });
+      setShowPaymentModal(false); setPaymentData({ id: "", amount: "", details: "", orderNoRef: "" }); alert("সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // ডিলিট
-  const deleteBuyer = async (id: string) => { if(window.confirm("বায়ার ডিলিট করবেন?")) await deleteDoc(doc(db, "buyers", id)); };
+  const deleteBuyer = async (id: string) => { if(window.confirm("ডিলিট করবেন?")) await deleteDoc(doc(db, "buyers", id)); };
   const deleteOrder = async (id: string, type: string, items?: any[]) => { 
-    if(window.confirm("লেনদেন ডিলিট করবেন?")) {
-      if(type === "Delivery" && items) {
-         for (const item of items) {
-           await updateDoc(doc(db, "shop_inventories", item.productId), { stock: increment(Number(item.qty)) });
-         }
-      }
+    if(window.confirm("ডিলিট করবেন?")) {
+      if(type === "Delivery" && items) for (const item of items) await updateDoc(doc(db, "shop_inventories", item.productId), { stock: increment(Number(item.qty)) });
       await deleteDoc(doc(db, "buyer_orders", id)); 
     }
   };
@@ -267,6 +298,40 @@ export default function ShopDashboardPage() {
         </>
       )}
 
+      {/* ✅ আগের মতো সুন্দর প্রোডাক্ট ডিজাইন */}
+      {viewMode === "product" && (
+        <div>
+          <div className="flex justify-between items-center mb-4 gap-2">
+            <div className="bg-white p-2 rounded-lg border flex items-center gap-2 w-full max-w-xs">
+              <Search size={16} className="text-gray-400" />
+              <input type="text" placeholder="Search..." className="outline-none text-sm w-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            </div>
+            <button onClick={handleShareCategory} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 shadow-sm">
+              <Share2 size={16} /> Share
+            </button>
+          </div>
+
+          {shopInventories.filter(p => p.mainCategory === selectedMain && p.subCategory === selectedSub && p.productName.toLowerCase().includes(searchTerm.toLowerCase())).map((item) => (
+            <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-3">
+              <div className="flex justify-between items-start border-b pb-2">
+                <div>
+                  <h3 className="text-base font-bold text-brand-navy">{item.productName}</h3>
+                  <div className="text-[10px] text-gray-700 bg-gray-100 inline-block px-1.5 py-0.5 rounded mt-1">{item.size} / {item.color}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => openEditProduct(item)} className="p-1.5 text-blue-600 bg-blue-50 rounded"><Edit size={16}/></button>
+                  <button onClick={() => deleteProduct(item.id, item.productName)} className="p-1.5 text-red-600 bg-red-50 rounded"><Trash2 size={16}/></button>
+                </div>
+              </div>
+              <div className="flex justify-between items-center pt-2 mt-2">
+                <span className="text-xs text-gray-500">Stock: <strong className="text-green-600 text-sm">{item.stock}</strong></span>
+                <span className="text-xs text-gray-500">Rate: <strong className="text-brand-navy text-sm">{item.costPrice}</strong></span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {viewMode === "buyers" && (
         <div>
           <div className="flex justify-between items-center mb-4">
@@ -281,7 +346,6 @@ export default function ShopDashboardPage() {
                 <div className="cursor-pointer" onClick={() => { setSelectedBuyer(buyer); setViewMode("buyer_statement"); }}>
                   <p className="font-bold text-brand-navy text-sm">{buyer.name}</p>
                   <p className="text-[11px] text-gray-500 flex items-center gap-1"><Phone size={10}/> {buyer.phone}</p>
-                  <p className="text-[11px] text-gray-500 flex items-center gap-1"><MapPin size={10}/> {buyer.address}</p>
                 </div>
                 <div className="flex gap-1">
                   <button onClick={() => { setBuyerFormData(buyer); setShowBuyerModal(true); }} className="text-blue-500 p-1 hover:bg-blue-50 rounded"><Edit size={14}/></button>
@@ -323,11 +387,10 @@ export default function ShopDashboardPage() {
               {buyerOrders.map((ord) => (
                 <div key={ord.id} className="flex justify-between items-start bg-gray-50 p-3 rounded-lg border border-gray-200">
                   <div>
-                    <p className="font-bold text-brand-navy text-sm">{ord.type} {ord.type === 'Delivery' && `(${ord.garments} - ${ord.orderNo})`}</p>
+                    <p className="font-bold text-brand-navy text-sm">{ord.type} {ord.type === 'Delivery' && `(${ord.garments})`}</p>
                     {ord.type === "Delivery" && ord.items.map((it:any, idx:number) => (
                        <p key={idx} className="text-[10px] text-gray-500">- {it.productName} ({it.qty} pcs)</p>
                     ))}
-                    <p className="text-[10px] text-gray-500">{ord.details || ord.orderNoRef}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <span className={`font-bold text-sm ${ord.type === 'Payment' ? 'text-green-600' : 'text-brand-navy'}`}>৳{ord.type === 'Payment' ? ord.amount : ord.items.reduce((s:number, i:any)=>s+Number(i.amount),0)}</span>
@@ -335,7 +398,6 @@ export default function ShopDashboardPage() {
                        <button onClick={() => {
                          if(ord.type === "Payment") { setIsEditPayment(true); setPaymentData({ id: ord.id, amount: ord.amount, details: ord.details || "", orderNoRef: ord.orderNoRef || "" }); setShowPaymentModal(true); }
                          else if(ord.type === "Delivery") { setIsEditDelivery(true); setDeliveryData({ id: ord.id, garments: ord.garments, orderNo: ord.orderNo, styleNo: ord.styleNo, items: ord.items }); setShowDeliveryModal(true); }
-                         else if(ord.type === "Order") { setIsEditOrder(true); setOrderData({ id: ord.id, garments: ord.garments, orderNo: ord.orderNo, styleNo: ord.styleNo, items: ord.items }); setShowOrderModal(true); }
                        }} className="text-blue-500 bg-blue-50 p-1 rounded"><Edit size={12}/></button>
                        <button onClick={() => deleteOrder(ord.id, ord.type, ord.items)} className="text-red-500 bg-red-50 p-1 rounded"><Trash2 size={12}/></button>
                     </div>
@@ -366,19 +428,19 @@ export default function ShopDashboardPage() {
           ))}
         </div>
       )}
-      {viewMode === "product" && (
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden mt-4">
-          <table className="w-full text-left text-xs md:text-sm">
-            <thead className="bg-gray-100 text-gray-600"><tr><th className="px-2 py-3">Product</th><th className="px-2 py-3 text-center">Stock</th></tr></thead>
-            <tbody>
-              {shopInventories.filter(p => p.mainCategory === selectedMain && p.subCategory === selectedSub).map(item => (
-                <tr key={item.id} className="border-b">
-                  <td className="px-2 py-3"><div className="font-bold text-brand-navy">{item.productName}</div><div className="text-[10px] text-gray-500">{item.size} / {item.color}</div></td>
-                  <td className="px-2 py-3 text-center font-bold text-green-600">{item.stock}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+      {/* ✅ প্রোডাক্ট এডিট মডাল */}
+      {editingProduct && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-4">Edit Product</h3>
+            <div className="text-xs text-gray-500 mb-3">{editingProduct.productName} ({editingProduct.size}/{editingProduct.color})</div>
+            <form onSubmit={handleUpdateProduct} className="space-y-3">
+              <div><label className="text-xs">Stock</label><input type="number" required className="w-full border p-2 rounded font-bold" value={editProdData.stock} onChange={e => setEditProdData({...editProdData, stock: Number(e.target.value)})} /></div>
+              <div><label className="text-xs">Cost Price (৳)</label><input type="number" required className="w-full border p-2 rounded" value={editProdData.costPrice} onChange={e => setEditProdData({...editProdData, costPrice: Number(e.target.value)})} /></div>
+              <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setEditingProduct(null)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button></div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -420,7 +482,7 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* Order & Delivery Modals */}
+      {/* Order Modal */}
       {showOrderModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
@@ -433,23 +495,17 @@ export default function ShopDashboardPage() {
               </div>
               <button type="button" onClick={() => { setOrderData({...orderData, items: [...orderData.items, tempOrderItem]}); setTempOrderItem({ productId: "", productName: "", qty: "", amount: "" }); }} className="w-full bg-blue-600 text-white p-2 rounded text-sm font-bold">+ Add Item</button>
             </div>
-            
             {orderData.items.map((it, i) => <div key={i} className="text-xs bg-gray-100 p-2 rounded mb-1 flex justify-between">{it.productName} ({it.qty} pcs) - ৳{it.amount}</div>)}
-
-            <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowOrderModal(false)} className="px-4 py-2 border rounded text-sm">Cancel</button><button onClick={handleOrderSave} className="px-4 py-2 bg-brand-navy text-white rounded text-sm">Save Order</button></div>
+            <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowOrderModal(false)} className="px-4 py-2 border rounded text-sm">Cancel</button><button onClick={handleOrderSave} className="px-4 py-2 bg-brand-navy text-white rounded text-sm">Save</button></div>
           </div>
         </div>
       )}
 
+      {/* Delivery Modal */}
       {showDeliveryModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-4">Add Delivery</h3>
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <input placeholder="Garments Name" className="w-full border p-2 rounded text-sm" value={deliveryData.garments} onChange={e => setDeliveryData({...deliveryData, garments: e.target.value})} />
-              <input placeholder="Order No" className="w-full border p-2 rounded text-sm" value={deliveryData.orderNo} onChange={e => setDeliveryData({...deliveryData, orderNo: e.target.value})} />
-            </div>
-            
             <div className="space-y-3 bg-gray-50 p-3 rounded mb-3 border">
               <div className="relative">
                 <input placeholder="Search Product..." className="w-full border p-2 rounded text-sm" value={tempDeliveryItem.productName} onChange={e => setTempDeliveryItem({...tempDeliveryItem, productName: e.target.value})} />
@@ -463,12 +519,10 @@ export default function ShopDashboardPage() {
                 <input placeholder="Qty" type="number" className="w-full border p-2 rounded text-sm" value={tempDeliveryItem.qty} onChange={e => setTempDeliveryItem({...tempDeliveryItem, qty: e.target.value})} />
                 <input placeholder="Amount ৳" type="number" className="w-full border p-2 rounded text-sm" value={tempDeliveryItem.amount} onChange={e => setTempDeliveryItem({...tempDeliveryItem, amount: e.target.value})} />
               </div>
-              <button type="button" onClick={() => { if(!tempDeliveryItem.productId) return alert("Select product!"); setDeliveryData({...deliveryData, items: [...deliveryData.items, tempDeliveryItem]}); setTempDeliveryItem({ productId: "", productName: "", qty: "", amount: "" }); }} className="w-full bg-blue-600 text-white p-2 rounded text-sm font-bold">+ Add Item to Delivery</button>
+              <button type="button" onClick={() => { if(!tempDeliveryItem.productId) return alert("Select product!"); setDeliveryData({...deliveryData, items: [...deliveryData.items, tempDeliveryItem]}); setTempDeliveryItem({ productId: "", productName: "", qty: "", amount: "" }); }} className="w-full bg-blue-600 text-white p-2 rounded text-sm font-bold">+ Add Item</button>
             </div>
-
             {deliveryData.items.map((it, i) => <div key={i} className="text-xs bg-gray-100 p-2 rounded mb-1 flex justify-between">{it.productName} ({it.qty} pcs) - ৳{it.amount}</div>)}
-
-            <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowDeliveryModal(false)} className="px-4 py-2 border rounded text-sm">Cancel</button><button onClick={handleDeliverySave} className="px-4 py-2 bg-brand-navy text-white rounded text-sm">Save Delivery</button></div>
+            <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowDeliveryModal(false)} className="px-4 py-2 border rounded text-sm">Cancel</button><button onClick={handleDeliverySave} className="px-4 py-2 bg-brand-navy text-white rounded text-sm">Save</button></div>
           </div>
         </div>
       )}
@@ -479,8 +533,6 @@ export default function ShopDashboardPage() {
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
             <h3 className="text-lg font-bold mb-4">{isEditPayment ? "Edit Payment" : "Add Payment"}</h3>
             <form onSubmit={handlePaymentSave} className="space-y-3">
-              <div><label className="text-xs">Order Ref (Optional)</label><input className="w-full border p-2 rounded" value={paymentData.orderNoRef} onChange={e => setPaymentData({...paymentData, orderNoRef: e.target.value})} /></div>
-              <div><label className="text-xs">Note</label><input className="w-full border p-2 rounded" value={paymentData.details} onChange={e => setPaymentData({...paymentData, details: e.target.value})} /></div>
               <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={paymentData.amount} onChange={e => setPaymentData({...paymentData, amount: e.target.value})} /></div>
               <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowPaymentModal(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-green-600 text-white rounded">Save</button></div>
             </form>
