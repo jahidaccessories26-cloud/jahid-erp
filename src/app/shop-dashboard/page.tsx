@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { db, auth } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, deleteDoc, addDoc, increment } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Package, Folder, ChevronRight, Search, Edit, Trash2, Users, Printer } from "lucide-react";
+import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Package, Folder, ChevronRight, Search, Edit, Trash2, Users, Share2, MapPin, Phone } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -25,24 +25,32 @@ export default function ShopDashboardPage() {
   const [selectedMain, setSelectedMain] = useState("");
   const [selectedSub, setSelectedSub] = useState("");
   const [selectedBuyer, setSelectedBuyer] = useState<any>(null);
+  const [searchTerm, setSearchTerm] = useState("");
 
   // সার্চ স্টেট
   const [prodSearch, setProdSearch] = useState("");
-  const [selectedProduct, setSelectedProduct] = useState<any>(null);
 
   // ডেইলি এন্ট্রি স্টেট
   const [showDailyEntry, setShowDailyEntry] = useState(false);
   const [dailyEntryData, setDailyEntryData] = useState({ type: "Sale", title: "", amount: "", productId: "", qty: "", expenseType: "Shop Expense" });
   
-  // বায়ার স্টেট
+  // বায়ার স্টেট (নাম, ফোন, ঠিকানা)
   const [showBuyerModal, setShowBuyerModal] = useState(false);
-  const [buyerFormData, setBuyerFormData] = useState({ id: "", name: "", phone: "", garmentsName: "" });
+  const [buyerFormData, setBuyerFormData] = useState({ id: "", name: "", phone: "", address: "" });
 
-  // অর্ডার/ডেলিভারি/পেমেন্ট স্টেট
+  // অর্ডার স্টেট
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [isEditOrder, setIsEditOrder] = useState(false);
-  const [orderData, setOrderData] = useState({ id: "", garments: "", orderNo: "", styleNo: "", productId: "", productName: "", qty: "", amount: "", oldQty: "" });
+  const [orderData, setOrderData] = useState({ id: "", garments: "", orderNo: "", styleNo: "", items: [] as any[] });
+  const [tempOrderItem, setTempOrderItem] = useState({ productId: "", productName: "", qty: "", amount: "" });
+
+  // ডেলিভারি স্টেট
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [isEditDelivery, setIsEditDelivery] = useState(false);
+  const [deliveryData, setDeliveryData] = useState({ id: "", garments: "", orderNo: "", styleNo: "", items: [] as any[] });
+  const [tempDeliveryItem, setTempDeliveryItem] = useState({ productId: "", productName: "", qty: "", amount: "" });
   
+  // পেমেন্ট স্টেট
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [isEditPayment, setIsEditPayment] = useState(false);
   const [paymentData, setPaymentData] = useState({ id: "", amount: "", details: "", orderNoRef: "" });
@@ -107,66 +115,64 @@ export default function ShopDashboardPage() {
     p.productName.toLowerCase().includes(prodSearch.toLowerCase())
   ).slice(0, 5);
 
-  // ডেইলি এন্ট্রি সেভ
-  const handleDailyEntrySave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      if (dailyEntryData.type === "Sale" && dailyEntryData.productId) {
-        const prod = shopInventories.find(p => p.id === dailyEntryData.productId);
-        if (prod) {
-          const qty = Number(dailyEntryData.qty);
-          if (prod.stock < qty) return alert("স্টকে পর্যাপ্ত মাল নেই!");
-          await updateDoc(doc(db, "shop_inventories", prod.id), { stock: Math.max(0, prod.stock - qty) });
-        }
-      }
-      const finalTitle = dailyEntryData.type === 'Expense' ? `${dailyEntryData.expenseType}: ${dailyEntryData.title}` : dailyEntryData.title;
-      
-      await addDoc(collection(db, "shop_statements"), {
-        shop: selectedShop, type: dailyEntryData.type, title: finalTitle, amount: Number(dailyEntryData.amount), date: new Date().toISOString(), createdAt: new Date().toISOString()
-      });
-      setShowDailyEntry(false); setDailyEntryData({ type: "Sale", title: "", amount: "", productId: "", qty: "", expenseType: "Shop Expense" }); alert("সেভ হয়েছে!");
-    } catch (error) { alert("সমস্যা হয়েছে!"); }
-  };
-
   // বায়ার সেভ
   const handleBuyerSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       if (buyerFormData.id) {
-        await updateDoc(doc(db, "buyers", buyerFormData.id), { name: buyerFormData.name, phone: buyerFormData.phone, garmentsName: buyerFormData.garmentsName });
+        await updateDoc(doc(db, "buyers", buyerFormData.id), { name: buyerFormData.name, phone: buyerFormData.phone, address: buyerFormData.address });
       } else {
-        await addDoc(collection(db, "buyers"), { shop: selectedShop, name: buyerFormData.name, phone: buyerFormData.phone, garmentsName: buyerFormData.garmentsName, createdAt: new Date().toISOString() });
+        await addDoc(collection(db, "buyers"), { shop: selectedShop, name: buyerFormData.name, phone: buyerFormData.phone, address: buyerFormData.address, createdAt: new Date().toISOString() });
       }
-      setShowBuyerModal(false); setBuyerFormData({ id: "", name: "", phone: "", garmentsName: "" }); alert("সেভ হয়েছে!");
+      setShowBuyerModal(false); setBuyerFormData({ id: "", name: "", phone: "", address: "" }); alert("সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // অর্ডার/ডেলিভারি সেভ
+  // অর্ডার সেভ
   const handleOrderSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (orderData.items.length === 0) return alert("কমপক্ষে একটি আইটেম যোগ করুন!");
     try {
-      const qtyToDeliver = Number(orderData.qty);
-
       if (isEditOrder) {
-        // এডিট করার সময় যদি স্টক আবার বাড়ানো/কমানো লাগে, তবে সেটা ভবিষ্যতে করতে হবে
-        await updateDoc(doc(db, "buyer_orders", orderData.id), {
-          garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, productId: orderData.productId, productName: orderData.productName, qty: qtyToDeliver, amount: Number(orderData.amount)
-        });
+        await updateDoc(doc(db, "buyer_orders", orderData.id), { garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, items: orderData.items });
       } else {
-        if (orderData.productId) {
-           const prod = shopInventories.find(p => p.id === orderData.productId);
-           if (prod) {
-             if (prod.stock < qtyToDeliver) return alert(`স্টকে মাত্র ${prod.stock} পিস আছে!`);
-             await updateDoc(doc(db, "shop_inventories", prod.id), { stock: Math.max(0, prod.stock - qtyToDeliver) });
-           }
+        await addDoc(collection(db, "buyer_orders"), {
+          shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, 
+          garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, items: orderData.items, 
+          type: "Order", date: new Date().toISOString()
+        });
+      }
+      setShowOrderModal(false); setOrderData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); alert("অর্ডার সেভ হয়েছে!");
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
+  };
+
+  // ডেলিভারি সেভ (স্টক চেক সহ)
+  const handleDeliverySave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (deliveryData.items.length === 0) return alert("কমপক্ষে একটি আইটেম যোগ করুন!");
+    try {
+      // স্টক চেক
+      for (const item of deliveryData.items) {
+        const prod = shopInventories.find(p => p.id === item.productId);
+        if (!prod || prod.stock < Number(item.qty)) {
+          return alert(`${item.productName} এর স্টক পর্যাপ্ত নয়! (আছে: ${prod?.stock || 0})`);
+        }
+      }
+
+      if (isEditDelivery) {
+        await updateDoc(doc(db, "buyer_orders", deliveryData.id), { garments: deliveryData.garments, orderNo: deliveryData.orderNo, styleNo: deliveryData.styleNo, items: deliveryData.items });
+      } else {
+        // স্টক কমানো
+        for (const item of deliveryData.items) {
+           await updateDoc(doc(db, "shop_inventories", item.productId), { stock: increment(-Number(item.qty)) });
         }
         await addDoc(collection(db, "buyer_orders"), {
           shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, 
-          garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, productId: orderData.productId, productName: orderData.productName, qty: qtyToDeliver, amount: Number(orderData.amount), 
+          garments: deliveryData.garments, orderNo: deliveryData.orderNo, styleNo: deliveryData.styleNo, items: deliveryData.items, 
           type: "Delivery", date: new Date().toISOString()
         });
       }
-      setShowOrderModal(false); setOrderData({ id: "", garments: "", orderNo: "", styleNo: "", productId: "", productName: "", qty: "", amount: "", oldQty: "" }); setProdSearch(""); setSelectedProduct(null); alert("সেভ হয়েছে!");
+      setShowDeliveryModal(false); setDeliveryData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); alert("ডেলিভারি সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
@@ -181,25 +187,25 @@ export default function ShopDashboardPage() {
           shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, type: "Payment", amount: Number(paymentData.amount), details: paymentData.details, orderNoRef: paymentData.orderNoRef, date: new Date().toISOString()
         });
       }
-      setShowPaymentModal(false); setPaymentData({ id: "", amount: "", details: "", orderNoRef: "" }); alert("সেভ হয়েছে!");
+      setShowPaymentModal(false); setPaymentData({ id: "", amount: "", details: "", orderNoRef: "" }); alert("পেমেন্ট সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // ডিলিট
-  const deleteStatement = async (id: string) => { if(window.confirm("ডিলিট করবেন?")) await deleteDoc(doc(db, "shop_statements", id)); };
+  // ডিলিট ফাংশন
   const deleteBuyer = async (id: string) => { if(window.confirm("বায়ার ডিলিট করবেন?")) await deleteDoc(doc(db, "buyers", id)); };
-  const deleteOrder = async (id: string, type: string, prodId?: string, qty?: number) => { 
-    if(window.confirm("লেনদেন ডিলিট করবেন? (স্টক ফেরত আসবে)")) {
-      if(type === "Delivery" && prodId && qty) {
-         const prod = shopInventories.find(p => p.id === prodId);
-         if (prod) await updateDoc(doc(db, "shop_inventories", prodId), { stock: increment(qty) });
+  const deleteOrder = async (id: string, type: string, items?: any[]) => { 
+    if(window.confirm("লেনদেন ডিলিট করবেন?")) {
+      if(type === "Delivery" && items) {
+         for (const item of items) {
+           await updateDoc(doc(db, "shop_inventories", item.productId), { stock: increment(Number(item.qty)) });
+         }
       }
       await deleteDoc(doc(db, "buyer_orders", id)); 
     }
   };
 
   const buyerOrders = shopBuyerOrders.filter(o => o.buyerId === selectedBuyer?.id).sort((a,b) => new Date(b.date) - new Date(a.date));
-  const buyerTotalBill = buyerOrders.filter(o => o.type === "Delivery").reduce((sum, o) => sum + Number(o.amount || 0), 0);
+  const buyerTotalBill = buyerOrders.filter(o => o.type === "Delivery").reduce((sum, o) => sum + o.items.reduce((s:number, i:any) => s + Number(i.amount), 0), 0);
   const buyerTotalPaid = buyerOrders.filter(o => o.type === "Payment").reduce((sum, o) => sum + Number(o.amount || 0), 0);
   const buyerDue = buyerTotalBill - buyerTotalPaid;
 
@@ -262,22 +268,6 @@ export default function ShopDashboardPage() {
             </div>
             <ChevronRight size={18} className="text-gray-400" />
           </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="p-3 border-b bg-gray-50 font-bold text-gray-700 text-sm">Today's History</div>
-            <div className="p-3 space-y-2">
-              {todayStatements.length === 0 && <p className="text-center text-sm text-gray-400 py-2">আজকে কোনো লেনদেন নেই।</p>}
-              {todayStatements.map((stmt) => (
-                <div key={stmt.id} className="flex justify-between items-center bg-gray-50 p-2 rounded-lg border border-gray-200">
-                  <div><p className="font-bold text-brand-navy text-sm">{stmt.title}</p><p className="text-[10px] text-gray-500">{stmt.type}</p></div>
-                  <div className="flex items-center gap-2">
-                    <span className={`font-bold text-sm ${stmt.type === 'Sale' ? 'text-green-600' : 'text-red-600'}`}>৳{stmt.amount}</span>
-                    <button onClick={() => deleteStatement(stmt.id)} className="text-red-500 bg-red-50 p-1 rounded"><Trash2 size={14}/></button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         </>
       )}
 
@@ -285,7 +275,7 @@ export default function ShopDashboardPage() {
         <div>
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-gray-700">All Buyers</h3>
-            <button onClick={() => { setBuyerFormData({ id: "", name: "", phone: "", garmentsName: "" }); setShowBuyerModal(true); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-1">
+            <button onClick={() => { setBuyerFormData({ id: "", name: "", phone: "", address: "" }); setShowBuyerModal(true); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-1">
               <PlusCircle size={16}/> Add Buyer
             </button>
           </div>
@@ -293,8 +283,9 @@ export default function ShopDashboardPage() {
             {shopBuyers.map(buyer => (
               <div key={buyer.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
                 <div className="cursor-pointer" onClick={() => { setSelectedBuyer(buyer); setViewMode("buyer_statement"); }}>
-                  <p className="font-bold text-brand-navy text-sm">{buyer.name} <span className="text-xs text-gray-500 font-normal">({buyer.garmentsName})</span></p>
-                  <p className="text-[11px] text-gray-500">{buyer.phone}</p>
+                  <p className="font-bold text-brand-navy text-sm">{buyer.name}</p>
+                  <p className="text-[11px] text-gray-500 flex items-center gap-1"><Phone size={10}/> {buyer.phone}</p>
+                  <p className="text-[11px] text-gray-500 flex items-center gap-1"><MapPin size={10}/> {buyer.address}</p>
                 </div>
                 <div className="flex gap-1">
                   <button onClick={() => { setBuyerFormData(buyer); setShowBuyerModal(true); }} className="text-blue-500 p-1 hover:bg-blue-50 rounded"><Edit size={14}/></button>
@@ -314,32 +305,43 @@ export default function ShopDashboardPage() {
             <div className="bg-white p-2 rounded-lg border-t-2 border-red-500 text-center"><p className="text-[10px] text-gray-500">Due</p><p className="font-bold text-red-600">{buyerDue}</p></div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            <button onClick={() => { setIsEditOrder(false); setOrderData({ id: "", garments: selectedBuyer.garmentsName || "", orderNo: "", styleNo: "", productId: "", productName: "", qty: "", amount: "", oldQty: "" }); setShowOrderModal(true); }} className="bg-brand-navy text-white py-2 rounded-lg text-sm font-medium flex justify-center items-center gap-1"><PlusCircle size={14}/> Add Delivery</button>
-            <button onClick={() => { setIsEditPayment(false); setPaymentData({ id: "", amount: "", details: "", orderNoRef: "" }); setShowPaymentModal(true); }} className="bg-green-600 text-white py-2 rounded-lg text-sm font-medium flex justify-center items-center gap-1"><PlusCircle size={14}/> Add Payment</button>
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            <button onClick={() => { setIsEditOrder(false); setOrderData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); setShowOrderModal(true); }} className="bg-blue-600 text-white py-2 rounded-lg text-xs font-medium flex justify-center items-center gap-1"><PlusCircle size={14}/> Order</button>
+            <button onClick={() => { setIsEditDelivery(false); setDeliveryData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); setShowDeliveryModal(true); }} className="bg-brand-navy text-white py-2 rounded-lg text-xs font-medium flex justify-center items-center gap-1"><PlusCircle size={14}/> Delivery</button>
+            <button onClick={() => { setIsEditPayment(false); setPaymentData({ id: "", amount: "", details: "", orderNoRef: "" }); setShowPaymentModal(true); }} className="bg-green-600 text-white py-2 rounded-lg text-xs font-medium flex justify-center items-center gap-1"><PlusCircle size={14}/> Payment</button>
+          </div>
+
+          <div className="flex justify-end mb-2">
+             <button onClick={() => {
+                let text = `Statement for ${selectedBuyer.name}\nTotal Bill: ${buyerTotalBill}\nPaid: ${buyerTotalPaid}\nDue: ${buyerDue}\n\nDetails:\n`;
+                buyerOrders.forEach(o => { text += `${new Date(o.date).toLocaleDateString()} - ${o.type} - ৳${o.type === 'Payment' ? o.amount : o.items.reduce((s:number, i:any)=>s+Number(i.amount),0)}\n`; });
+                if(navigator.share) navigator.share({ title: 'Statement', text });
+                else alert("Your browser doesn't support share.");
+             }} className="text-brand-navy text-sm flex items-center gap-1 font-bold"><Share2 size={16}/> Share Statement</button>
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-             <div className="p-3 border-b bg-gray-50 font-bold text-gray-700 text-sm flex justify-between items-center">
-               <span>Statement Ledger</span>
-             </div>
+             <div className="p-3 border-b bg-gray-50 font-bold text-gray-700 text-sm">Statement Ledger</div>
              <div className="p-3 space-y-3">
               {buyerOrders.length === 0 && <p className="text-center text-sm text-gray-400 py-2">কোনো লেনদেন নেই।</p>}
               {buyerOrders.map((ord) => (
                 <div key={ord.id} className="flex justify-between items-start bg-gray-50 p-3 rounded-lg border border-gray-200">
                   <div>
-                    <p className="font-bold text-brand-navy text-sm">{ord.type === "Payment" ? "Payment" : `${ord.garments} - ${ord.orderNo}`}</p>
-                    {ord.type === "Delivery" && <p className="text-[10px] text-gray-500">Style: {ord.styleNo} | Product: {ord.productName} ({ord.qty} pcs)</p>}
+                    <p className="font-bold text-brand-navy text-sm">{ord.type} {ord.type === 'Delivery' && `(${ord.garments} - ${ord.orderNo})`}</p>
+                    {ord.type === "Delivery" && ord.items.map((it:any, idx:number) => (
+                       <p key={idx} className="text-[10px] text-gray-500">- {it.productName} ({it.qty} pcs)</p>
+                    ))}
                     <p className="text-[10px] text-gray-500">{ord.details || ord.orderNoRef}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1">
-                    <span className={`font-bold text-sm ${ord.type === 'Payment' ? 'text-green-600' : 'text-brand-navy'}`}>৳{ord.amount}</span>
+                    <span className={`font-bold text-sm ${ord.type === 'Payment' ? 'text-green-600' : 'text-brand-navy'}`}>৳{ord.type === 'Payment' ? ord.amount : ord.items.reduce((s:number, i:any)=>s+Number(i.amount),0)}</span>
                     <div className="flex gap-1">
                        <button onClick={() => {
                          if(ord.type === "Payment") { setIsEditPayment(true); setPaymentData({ id: ord.id, amount: ord.amount, details: ord.details || "", orderNoRef: ord.orderNoRef || "" }); setShowPaymentModal(true); }
-                         else { setIsEditOrder(true); setOrderData({ id: ord.id, garments: ord.garments, orderNo: ord.orderNo, styleNo: ord.styleNo, productId: ord.productId, productName: ord.productName, qty: ord.qty, amount: ord.amount, oldQty: ord.qty }); setShowOrderModal(true); }
+                         else if(ord.type === "Delivery") { setIsEditDelivery(true); setDeliveryData({ id: ord.id, garments: ord.garments, orderNo: ord.orderNo, styleNo: ord.styleNo, items: ord.items }); setShowDeliveryModal(true); }
+                         else if(ord.type === "Order") { setIsEditOrder(true); setOrderData({ id: ord.id, garments: ord.garments, orderNo: ord.orderNo, styleNo: ord.styleNo, items: ord.items }); setShowOrderModal(true); }
                        }} className="text-blue-500 bg-blue-50 p-1 rounded"><Edit size={12}/></button>
-                       <button onClick={() => deleteOrder(ord.id, ord.type, ord.productId, Number(ord.qty))} className="text-red-500 bg-red-50 p-1 rounded"><Trash2 size={12}/></button>
+                       <button onClick={() => deleteOrder(ord.id, ord.type, ord.items)} className="text-red-500 bg-red-50 p-1 rounded"><Trash2 size={12}/></button>
                     </div>
                   </div>
                 </div>
@@ -389,42 +391,16 @@ export default function ShopDashboardPage() {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
             <h3 className="text-lg font-bold mb-4">Add Daily Entry</h3>
-            <form onSubmit={handleDailyEntrySave} className="space-y-3">
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              await addDoc(collection(db, "shop_statements"), { shop: selectedShop, type: dailyEntryData.type, title: dailyEntryData.title, amount: Number(dailyEntryData.amount), date: new Date().toISOString() });
+              setShowDailyEntry(false); alert("Saved!");
+            }} className="space-y-3">
               <div><label className="text-xs font-medium">Entry Type</label>
                 <select className="w-full border p-2 rounded" value={dailyEntryData.type} onChange={e => setDailyEntryData({...dailyEntryData, type: e.target.value})}>
-                  <option value="Sale">Sale (বিক্রি)</option>
-                  <option value="Expense">Expense (খরচ)</option>
-                  <option value="Purchase">Purchase (ক্রয়)</option>
+                  <option value="Sale">Sale</option><option value="Expense">Expense</option><option value="Purchase">Purchase</option>
                 </select>
               </div>
-              
-              {dailyEntryData.type === "Sale" && (
-                <>
-                  <div>
-                    <label className="text-xs font-medium">Search Product</label>
-                    <input type="text" placeholder="Type product name..." className="w-full border p-2 rounded mb-1" value={prodSearch} onChange={e => setProdSearch(e.target.value)} />
-                    <div className="max-h-24 overflow-y-auto border rounded bg-gray-50">
-                      {searchedProducts.map(p => (
-                        <div key={p.id} onClick={() => { setDailyEntryData({...dailyEntryData, productId: p.id, title: p.productName, amount: p.costPrice.toString()}); setProdSearch(""); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50">{p.productName} ({p.size}/{p.color}) - Stock: {p.stock}</div>
-                      ))}
-                      {searchedProducts.length === 0 && prodSearch && <div className="p-2 text-xs text-gray-500">No product found</div>}
-                    </div>
-                  </div>
-                  <div><label className="text-xs font-medium">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={dailyEntryData.qty} onChange={e => setDailyEntryData({...dailyEntryData, qty: e.target.value})} /></div>
-                </>
-              )}
-
-              {dailyEntryData.type === "Expense" && (
-                <div><label className="text-xs font-medium">Expense Category</label>
-                  <select className="w-full border p-2 rounded" value={dailyEntryData.expenseType} onChange={e => setDailyEntryData({...dailyEntryData, expenseType: e.target.value})}>
-                    <option value="Shop Expense">দোকান খরচ</option>
-                    <option value="Bank Deposit">ব্যাংকে জমা</option>
-                    <option value="Party Payment">পার্টি পেমেন্ট</option>
-                    <option value="Transport">যাতায়াত</option>
-                  </select>
-                </div>
-              )}
-
               <div><label className="text-xs">Title/Note</label><input required className="w-full border p-2 rounded" value={dailyEntryData.title} onChange={e => setDailyEntryData({...dailyEntryData, title: e.target.value})} /></div>
               <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={dailyEntryData.amount} onChange={e => setDailyEntryData({...dailyEntryData, amount: e.target.value})} /></div>
               <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowDailyEntry(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button></div>
@@ -439,43 +415,64 @@ export default function ShopDashboardPage() {
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
             <h3 className="text-lg font-bold mb-4">{buyerFormData.id ? "Edit Buyer" : "Add Buyer"}</h3>
             <form onSubmit={handleBuyerSave} className="space-y-3">
-              <div><label className="text-xs">Garments Name</label><input required className="w-full border p-2 rounded" value={buyerFormData.garmentsName} onChange={e => setBuyerFormData({...buyerFormData, garmentsName: e.target.value})} /></div>
               <div><label className="text-xs">Buyer Name</label><input required className="w-full border p-2 rounded" value={buyerFormData.name} onChange={e => setBuyerFormData({...buyerFormData, name: e.target.value})} /></div>
               <div><label className="text-xs">Phone</label><input className="w-full border p-2 rounded" value={buyerFormData.phone} onChange={e => setBuyerFormData({...buyerFormData, phone: e.target.value})} /></div>
+              <div><label className="text-xs">Address</label><input className="w-full border p-2 rounded" value={buyerFormData.address} onChange={e => setBuyerFormData({...buyerFormData, address: e.target.value})} /></div>
               <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowBuyerModal(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button></div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Order Modal (স্টক চেক সহ) */}
+      {/* Order & Delivery Modals (Multi-Items) */}
       {showOrderModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-4">{isEditOrder ? "Edit Delivery" : "Add Delivery"}</h3>
-            <form onSubmit={handleOrderSave} className="space-y-3">
-              <div><label className="text-xs">Garments Name</label><input required className="w-full border p-2 rounded" value={orderData.garments} onChange={e => setOrderData({...orderData, garments: e.target.value})} /></div>
+          <div className="bg-white p-5 rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold mb-4">Add Order</h3>
+            <div className="space-y-3 bg-gray-50 p-3 rounded mb-3 border">
+              <input placeholder="Product Name..." className="w-full border p-2 rounded text-sm" value={tempOrderItem.productName} onChange={e => setTempOrderItem({...tempOrderItem, productName: e.target.value})} />
               <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs">Order No</label><input required className="w-full border p-2 rounded" value={orderData.orderNo} onChange={e => setOrderData({...orderData, orderNo: e.target.value})} /></div>
-                <div><label className="text-xs">Style No</label><input required className="w-full border p-2 rounded" value={orderData.styleNo} onChange={e => setOrderData({...orderData, styleNo: e.target.value})} /></div>
+                <input placeholder="Qty" type="number" className="w-full border p-2 rounded text-sm" value={tempOrderItem.qty} onChange={e => setTempOrderItem({...tempOrderItem, qty: e.target.value})} />
+                <input placeholder="Amount ৳" type="number" className="w-full border p-2 rounded text-sm" value={tempOrderItem.amount} onChange={e => setTempOrderItem({...tempOrderItem, amount: e.target.value})} />
               </div>
-              <div>
-                <label className="text-xs font-medium">Search Product</label>
-                <input type="text" placeholder="Type product name..." className="w-full border p-2 rounded mb-1" value={prodSearch} onChange={e => setProdSearch(e.target.value)} />
-                <div className="max-h-24 overflow-y-auto border rounded bg-gray-50">
-                  {searchedProducts.map(p => (
-                    <div key={p.id} onClick={() => { setOrderData({...orderData, productId: p.id, productName: p.productName, amount: p.costPrice.toString()}); setProdSearch(""); setSelectedProduct(p); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50">{p.productName} ({p.size}/{p.color}) - Stock: {p.stock}</div>
-                  ))}
-                  {searchedProducts.length === 0 && prodSearch && <div className="p-2 text-xs text-gray-500">No product found</div>}
-                </div>
-                {orderData.productName && <p className="text-xs text-green-600 mt-1">Selected: {orderData.productName}</p>}
+              <button type="button" onClick={() => { setOrderData({...orderData, items: [...orderData.items, tempOrderItem]}); setTempOrderItem({ productId: "", productName: "", qty: "", amount: "" }); }} className="w-full bg-blue-600 text-white p-2 rounded text-sm font-bold">+ Add Item</button>
+            </div>
+            
+            {orderData.items.map((it, i) => <div key={i} className="text-xs bg-gray-100 p-2 rounded mb-1 flex justify-between">{it.productName} ({it.qty} pcs) - ৳{it.amount}</div>)}
+
+            <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowOrderModal(false)} className="px-4 py-2 border rounded text-sm">Cancel</button><button onClick={handleOrderSave} className="px-4 py-2 bg-brand-navy text-white rounded text-sm">Save Order</button></div>
+          </div>
+        </div>
+      )}
+
+      {showDeliveryModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold mb-4">Add Delivery</h3>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <input placeholder="Garments Name" className="w-full border p-2 rounded text-sm" value={deliveryData.garments} onChange={e => setDeliveryData({...deliveryData, garments: e.target.value})} />
+              <input placeholder="Order No" className="w-full border p-2 rounded text-sm" value={deliveryData.orderNo} onChange={e => setDeliveryData({...deliveryData, orderNo: e.target.value})} />
+            </div>
+            
+            <div className="space-y-3 bg-gray-50 p-3 rounded mb-3 border">
+              <div className="relative">
+                <input placeholder="Search Product..." className="w-full border p-2 rounded text-sm" value={tempDeliveryItem.productName} onChange={e => setTempDeliveryItem({...tempDeliveryItem, productName: e.target.value})} />
+                {tempDeliveryItem.productName && !tempDeliveryItem.productId && (
+                  <div className="absolute z-10 w-full bg-white border mt-1 rounded shadow max-h-32 overflow-y-auto">
+                    {searchedProducts.map(p => <div key={p.id} onClick={() => setTempDeliveryItem({...tempDeliveryItem, productId: p.id, productName: p.productName, amount: p.costPrice.toString()})} className="p-2 text-xs border-b hover:bg-blue-50 cursor-pointer">{p.productName} - Stock: {p.stock}</div>)}
+                  </div>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={orderData.qty} onChange={e => setOrderData({...orderData, qty: e.target.value})} /></div>
-                <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={orderData.amount} onChange={e => setOrderData({...orderData, amount: e.target.value})} /></div>
+                <input placeholder="Qty" type="number" className="w-full border p-2 rounded text-sm" value={tempDeliveryItem.qty} onChange={e => setTempDeliveryItem({...tempDeliveryItem, qty: e.target.value})} />
+                <input placeholder="Amount ৳" type="number" className="w-full border p-2 rounded text-sm" value={tempDeliveryItem.amount} onChange={e => setTempDeliveryItem({...tempDeliveryItem, amount: e.target.value})} />
               </div>
-              <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowOrderModal(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button></div>
-            </form>
+              <button type="button" onClick={() => { if(!tempDeliveryItem.productId) return alert("Select product!"); setDeliveryData({...deliveryData, items: [...deliveryData.items, tempDeliveryItem]}); setTempDeliveryItem({ productId: "", productName: "", qty: "", amount: "" }); }} className="w-full bg-blue-600 text-white p-2 rounded text-sm font-bold">+ Add Item to Delivery</button>
+            </div>
+
+            {deliveryData.items.map((it, i) => <div key={i} className="text-xs bg-gray-100 p-2 rounded mb-1 flex justify-between">{it.productName} ({it.qty} pcs) - ৳{it.amount}</div>)}
+
+            <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowDeliveryModal(false)} className="px-4 py-2 border rounded text-sm">Cancel</button><button onClick={handleDeliverySave} className="px-4 py-2 bg-brand-navy text-white rounded text-sm">Save Delivery</button></div>
           </div>
         </div>
       )}
@@ -486,8 +483,8 @@ export default function ShopDashboardPage() {
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
             <h3 className="text-lg font-bold mb-4">{isEditPayment ? "Edit Payment" : "Add Payment"}</h3>
             <form onSubmit={handlePaymentSave} className="space-y-3">
-              <div><label className="text-xs">Order No Ref (Optional)</label><input className="w-full border p-2 rounded" value={paymentData.orderNoRef} onChange={e => setPaymentData({...paymentData, orderNoRef: e.target.value})} /></div>
-              <div><label className="text-xs">Details (Note)</label><input className="w-full border p-2 rounded" value={paymentData.details} onChange={e => setPaymentData({...paymentData, details: e.target.value})} /></div>
+              <div><label className="text-xs">Order Ref (Optional)</label><input className="w-full border p-2 rounded" value={paymentData.orderNoRef} onChange={e => setPaymentData({...paymentData, orderNoRef: e.target.value})} /></div>
+              <div><label className="text-xs">Note</label><input className="w-full border p-2 rounded" value={paymentData.details} onChange={e => setPaymentData({...paymentData, details: e.target.value})} /></div>
               <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={paymentData.amount} onChange={e => setPaymentData({...paymentData, amount: e.target.value})} /></div>
               <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowPaymentModal(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-green-600 text-white rounded">Save</button></div>
             </form>
