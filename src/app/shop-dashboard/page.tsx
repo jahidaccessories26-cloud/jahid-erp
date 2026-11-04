@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { db, auth } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, deleteDoc, addDoc, increment } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Package, Folder, ChevronRight, Search, Edit, Trash2, Users } from "lucide-react";
+import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Package, Folder, ChevronRight, Search, Edit, Trash2, Users, Printer } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -34,14 +34,14 @@ export default function ShopDashboardPage() {
   const [showDailyEntry, setShowDailyEntry] = useState(false);
   const [dailyEntryData, setDailyEntryData] = useState({ type: "Sale", title: "", amount: "", productId: "", qty: "", expenseType: "Shop Expense" });
   
-  // বায়ার স্টেট (গার্মেন্টস নাম সহ)
+  // বায়ার স্টেট
   const [showBuyerModal, setShowBuyerModal] = useState(false);
   const [buyerFormData, setBuyerFormData] = useState({ id: "", name: "", phone: "", garmentsName: "" });
 
   // অর্ডার/ডেলিভারি/পেমেন্ট স্টেট
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [isEditOrder, setIsEditOrder] = useState(false);
-  const [orderData, setOrderData] = useState({ id: "", garments: "", orderNo: "", styleNo: "", productId: "", productName: "", qty: "", amount: "" });
+  const [orderData, setOrderData] = useState({ id: "", garments: "", orderNo: "", styleNo: "", productId: "", productName: "", qty: "", amount: "", oldQty: "" });
   
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [isEditPayment, setIsEditPayment] = useState(false);
@@ -102,7 +102,7 @@ export default function ShopDashboardPage() {
   let totalStockValue = 0;
   shopInventories.forEach(item => { totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0); });
 
-  // সার্চ করা প্রোডাক্ট (শুধু প্রথম ৫টা দেখাবে)
+  // সার্চ করা প্রোডাক্ট
   const searchedProducts = shopInventories.filter(p => 
     p.productName.toLowerCase().includes(prodSearch.toLowerCase())
   ).slice(0, 5);
@@ -115,6 +115,7 @@ export default function ShopDashboardPage() {
         const prod = shopInventories.find(p => p.id === dailyEntryData.productId);
         if (prod) {
           const qty = Number(dailyEntryData.qty);
+          if (prod.stock < qty) return alert("স্টকে পর্যাপ্ত মাল নেই!");
           await updateDoc(doc(db, "shop_inventories", prod.id), { stock: Math.max(0, prod.stock - qty) });
         }
       }
@@ -144,22 +145,28 @@ export default function ShopDashboardPage() {
   const handleOrderSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const qtyToDeliver = Number(orderData.qty);
+
       if (isEditOrder) {
+        // এডিট করার সময় যদি স্টক আবার বাড়ানো/কমানো লাগে, তবে সেটা ভবিষ্যতে করতে হবে
         await updateDoc(doc(db, "buyer_orders", orderData.id), {
-          garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, productId: orderData.productId, productName: orderData.productName, qty: Number(orderData.qty), amount: Number(orderData.amount)
+          garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, productId: orderData.productId, productName: orderData.productName, qty: qtyToDeliver, amount: Number(orderData.amount)
         });
       } else {
         if (orderData.productId) {
            const prod = shopInventories.find(p => p.id === orderData.productId);
-           if (prod) await updateDoc(doc(db, "shop_inventories", prod.id), { stock: Math.max(0, prod.stock - Number(orderData.qty)) });
+           if (prod) {
+             if (prod.stock < qtyToDeliver) return alert(`স্টকে মাত্র ${prod.stock} পিস আছে!`);
+             await updateDoc(doc(db, "shop_inventories", prod.id), { stock: Math.max(0, prod.stock - qtyToDeliver) });
+           }
         }
         await addDoc(collection(db, "buyer_orders"), {
           shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, 
-          garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, productId: orderData.productId, productName: orderData.productName, qty: Number(orderData.qty), amount: Number(orderData.amount), 
+          garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, productId: orderData.productId, productName: orderData.productName, qty: qtyToDeliver, amount: Number(orderData.amount), 
           type: "Delivery", date: new Date().toISOString()
         });
       }
-      setShowOrderModal(false); setOrderData({ id: "", garments: "", orderNo: "", styleNo: "", productId: "", productName: "", qty: "", amount: "" }); setProdSearch(""); setSelectedProduct(null); alert("সেভ হয়েছে!");
+      setShowOrderModal(false); setOrderData({ id: "", garments: "", orderNo: "", styleNo: "", productId: "", productName: "", qty: "", amount: "", oldQty: "" }); setProdSearch(""); setSelectedProduct(null); alert("সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
@@ -178,10 +185,18 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // ডিলিট ফাংশন
+  // ডিলিট
   const deleteStatement = async (id: string) => { if(window.confirm("ডিলিট করবেন?")) await deleteDoc(doc(db, "shop_statements", id)); };
   const deleteBuyer = async (id: string) => { if(window.confirm("বায়ার ডিলিট করবেন?")) await deleteDoc(doc(db, "buyers", id)); };
-  const deleteOrder = async (id: string) => { if(window.confirm("লেনদেন ডিলিট করবেন?")) await deleteDoc(doc(db, "buyer_orders", id)); };
+  const deleteOrder = async (id: string, type: string, prodId?: string, qty?: number) => { 
+    if(window.confirm("লেনদেন ডিলিট করবেন? (স্টক ফেরত আসবে)")) {
+      if(type === "Delivery" && prodId && qty) {
+         const prod = shopInventories.find(p => p.id === prodId);
+         if (prod) await updateDoc(doc(db, "shop_inventories", prodId), { stock: increment(qty) });
+      }
+      await deleteDoc(doc(db, "buyer_orders", id)); 
+    }
+  };
 
   const buyerOrders = shopBuyerOrders.filter(o => o.buyerId === selectedBuyer?.id).sort((a,b) => new Date(b.date) - new Date(a.date));
   const buyerTotalBill = buyerOrders.filter(o => o.type === "Delivery").reduce((sum, o) => sum + Number(o.amount || 0), 0);
@@ -300,12 +315,14 @@ export default function ShopDashboardPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-2 mb-4">
-            <button onClick={() => { setIsEditOrder(false); setOrderData({ id: "", garments: selectedBuyer.garmentsName || "", orderNo: "", styleNo: "", productId: "", productName: "", qty: "", amount: "" }); setShowOrderModal(true); }} className="bg-brand-navy text-white py-2 rounded-lg text-sm font-medium flex justify-center items-center gap-1"><PlusCircle size={14}/> Add Delivery</button>
+            <button onClick={() => { setIsEditOrder(false); setOrderData({ id: "", garments: selectedBuyer.garmentsName || "", orderNo: "", styleNo: "", productId: "", productName: "", qty: "", amount: "", oldQty: "" }); setShowOrderModal(true); }} className="bg-brand-navy text-white py-2 rounded-lg text-sm font-medium flex justify-center items-center gap-1"><PlusCircle size={14}/> Add Delivery</button>
             <button onClick={() => { setIsEditPayment(false); setPaymentData({ id: "", amount: "", details: "", orderNoRef: "" }); setShowPaymentModal(true); }} className="bg-green-600 text-white py-2 rounded-lg text-sm font-medium flex justify-center items-center gap-1"><PlusCircle size={14}/> Add Payment</button>
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-             <div className="p-3 border-b bg-gray-50 font-bold text-gray-700 text-sm">Statement Ledger</div>
+             <div className="p-3 border-b bg-gray-50 font-bold text-gray-700 text-sm flex justify-between items-center">
+               <span>Statement Ledger</span>
+             </div>
              <div className="p-3 space-y-3">
               {buyerOrders.length === 0 && <p className="text-center text-sm text-gray-400 py-2">কোনো লেনদেন নেই।</p>}
               {buyerOrders.map((ord) => (
@@ -320,9 +337,9 @@ export default function ShopDashboardPage() {
                     <div className="flex gap-1">
                        <button onClick={() => {
                          if(ord.type === "Payment") { setIsEditPayment(true); setPaymentData({ id: ord.id, amount: ord.amount, details: ord.details || "", orderNoRef: ord.orderNoRef || "" }); setShowPaymentModal(true); }
-                         else { setIsEditOrder(true); setOrderData({ id: ord.id, garments: ord.garments, orderNo: ord.orderNo, styleNo: ord.styleNo, productId: ord.productId, productName: ord.productName, qty: ord.qty, amount: ord.amount }); setShowOrderModal(true); }
+                         else { setIsEditOrder(true); setOrderData({ id: ord.id, garments: ord.garments, orderNo: ord.orderNo, styleNo: ord.styleNo, productId: ord.productId, productName: ord.productName, qty: ord.qty, amount: ord.amount, oldQty: ord.qty }); setShowOrderModal(true); }
                        }} className="text-blue-500 bg-blue-50 p-1 rounded"><Edit size={12}/></button>
-                       <button onClick={() => deleteOrder(ord.id)} className="text-red-500 bg-red-50 p-1 rounded"><Trash2 size={12}/></button>
+                       <button onClick={() => deleteOrder(ord.id, ord.type, ord.productId, Number(ord.qty))} className="text-red-500 bg-red-50 p-1 rounded"><Trash2 size={12}/></button>
                     </div>
                   </div>
                 </div>
@@ -416,7 +433,7 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* Buyer Modal (গার্মেন্টস নাম সহ) */}
+      {/* Buyer Modal */}
       {showBuyerModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
@@ -431,7 +448,7 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* Order Modal (গার্মেন্টস, অর্ডার ও স্টাইল নাম্বার সহ) */}
+      {/* Order Modal (স্টক চেক সহ) */}
       {showOrderModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
