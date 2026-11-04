@@ -2,11 +2,9 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db, auth } from "../../lib/firebase";
-import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, deleteDoc, addDoc, increment } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, deleteDoc, addDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Package, Folder, ChevronRight, Search, Edit, Trash2, Users } from "lucide-react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { Store, ArrowLeft, PlusCircle, X, Package, Folder, ChevronRight, Search, Edit, Trash2, Users, CheckCircle } from "lucide-react";
 
 export default function ShopDashboardPage() {
   const router = useRouter();
@@ -18,30 +16,28 @@ export default function ShopDashboardPage() {
   const [shopInventories, setShopInventories] = useState<any[]>([]);
   const [shopStatements, setShopStatements] = useState<any[]>([]);
   const [shopBuyers, setShopBuyers] = useState<any[]>([]);
-  const [shopBuyerOrders, setShopBuyerOrders] = useState<any[]>([]); 
+  const [shopBuyerOrders, setShopBuyerOrders] = useState<any[]>([]);
 
-  // ভিউ স্টেট
   const [viewMode, setViewMode] = useState<"dashboard" | "main" | "sub" | "product" | "buyers" | "buyer_statement">("dashboard");
   const [selectedMain, setSelectedMain] = useState("");
   const [selectedSub, setSelectedSub] = useState("");
   const [selectedBuyer, setSelectedBuyer] = useState<any>(null);
-
-  // সার্চ স্টেট (ড্রপডাউনের বদলে)
   const [prodSearch, setProdSearch] = useState("");
 
-  // ডেইলি এন্ট্রি স্টেট
+  // ডেইলি এন্ট্রি
   const [showDailyEntry, setShowDailyEntry] = useState(false);
   const [dailyEntryData, setDailyEntryData] = useState({ type: "Sale", title: "", amount: "", productId: "", qty: "", expenseType: "Shop Expense" });
-  
-  // বায়ার স্টেট
+
+  // বায়ার
   const [showBuyerModal, setShowBuyerModal] = useState(false);
   const [buyerFormData, setBuyerFormData] = useState({ id: "", name: "", phone: "" });
 
-  // অর্ডার/ডেলিভারি/পেমেন্ট স্টেট
+  // অর্ডার / ডেলিভারি
   const [showOrderModal, setShowOrderModal] = useState(false);
   const [isEditOrder, setIsEditOrder] = useState(false);
   const [orderData, setOrderData] = useState({ id: "", garments: "", orderNo: "", styleNo: "", productId: "", qty: "", amount: "" });
-  
+
+  // পেমেন্ট
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [isEditPayment, setIsEditPayment] = useState(false);
   const [paymentData, setPaymentData] = useState({ id: "", amount: "", details: "", orderNoRef: "" });
@@ -73,7 +69,6 @@ export default function ShopDashboardPage() {
 
   useEffect(() => {
     if (!selectedShop) return;
-    
     const unsubInv = onSnapshot(query(collection(db, "shop_inventories")), (snapshot) => {
       setShopInventories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(item => item.shop === selectedShop));
     });
@@ -86,11 +81,9 @@ export default function ShopDashboardPage() {
     const unsubOrders = onSnapshot(query(collection(db, "buyer_orders")), (snapshot) => {
       setShopBuyerOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(item => item.shop === selectedShop));
     });
-
     return () => { unsubInv(); unsubStatements(); unsubBuyers(); unsubOrders(); };
   }, [selectedShop]);
 
-  // হিসাব
   const todayStr = new Date().toISOString().split("T")[0];
   const todayStatements = shopStatements.filter(s => s.date?.startsWith(todayStr));
   const todaySales = todayStatements.filter(s => s.type === 'Sale').reduce((sum, s) => sum + Number(s.amount || 0), 0);
@@ -101,12 +94,8 @@ export default function ShopDashboardPage() {
   let totalStockValue = 0;
   shopInventories.forEach(item => { totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0); });
 
-  // সার্চ করা প্রোডাক্ট
-  const searchedProducts = shopInventories.filter(p => 
-    p.productName.toLowerCase().includes(prodSearch.toLowerCase())
-  ).slice(0, 10); // প্রথম ১০টা দেখাবে
+  const searchedProducts = shopInventories.filter(p => p.productName.toLowerCase().includes(prodSearch.toLowerCase())).slice(0, 10);
 
-  // ডেইলি এন্ট্রি সেভ
   const handleDailyEntrySave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -118,7 +107,6 @@ export default function ShopDashboardPage() {
         }
       }
       const finalTitle = dailyEntryData.type === 'Expense' ? `${dailyEntryData.expenseType}: ${dailyEntryData.title}` : dailyEntryData.title;
-      
       await addDoc(collection(db, "shop_statements"), {
         shop: selectedShop, type: dailyEntryData.type, title: finalTitle, amount: Number(dailyEntryData.amount), date: new Date().toISOString(), createdAt: new Date().toISOString()
       });
@@ -126,7 +114,6 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // বায়ার সেভ
   const handleBuyerSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -139,13 +126,11 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // অর্ডার/ডেলিভারি সেভ
   const handleOrderSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const prod = shopInventories.find(p => p.id === orderData.productId);
       const prodName = prod ? prod.productName : "Unknown";
-      
       if (isEditOrder) {
         await updateDoc(doc(db, "buyer_orders", orderData.id), {
           garments: orderData.garments, orderNo: orderData.orderNo, styleNo: orderData.styleNo, productId: orderData.productId, productName: prodName, qty: Number(orderData.qty), amount: Number(orderData.amount)
@@ -164,7 +149,6 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // পেমেন্ট সেভ
   const handlePaymentSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -179,12 +163,11 @@ export default function ShopDashboardPage() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // ডিলিট
   const deleteStatement = async (id: string) => { if(window.confirm("ডিলিট করবেন?")) await deleteDoc(doc(db, "shop_statements", id)); };
   const deleteBuyer = async (id: string) => { if(window.confirm("বায়ার ডিলিট করবেন?")) await deleteDoc(doc(db, "buyers", id)); };
   const deleteOrder = async (id: string) => { if(window.confirm("লেনদেন ডিলিট করবেন?")) await deleteDoc(doc(db, "buyer_orders", id)); };
 
-  const buyerOrders = shopBuyerOrders.filter(o => o.buyerId === selectedBuyer?.id).sort((a,b) => new Date(b.date) - new Date(a.date));
+  const buyerOrders = shopBuyerOrders.filter(o => o.buyerId === selectedBuyer?.id).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   const buyerTotalBill = buyerOrders.filter(o => o.type === "Delivery").reduce((sum, o) => sum + Number(o.amount || 0), 0);
   const buyerTotalPaid = buyerOrders.filter(o => o.type === "Payment").reduce((sum, o) => sum + Number(o.amount || 0), 0);
   const buyerDue = buyerTotalBill - buyerTotalPaid;
@@ -208,7 +191,6 @@ export default function ShopDashboardPage() {
         </div>
       </div>
 
-      {/* ড্যাশবোর্ড */}
       {viewMode === "dashboard" && (
         <>
           <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
@@ -268,7 +250,6 @@ export default function ShopDashboardPage() {
         </>
       )}
 
-      {/* বায়ার লিস্ট */}
       {viewMode === "buyers" && (
         <div>
           <div className="flex justify-between items-center mb-4">
@@ -294,7 +275,6 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* বায়ার স্টেটমেন্ট */}
       {viewMode === "buyer_statement" && selectedBuyer && (
         <div>
           <div className="grid grid-cols-3 gap-2 mb-4">
@@ -336,7 +316,6 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* Stock Categories (আগের মতো) */}
       {viewMode === "main" && (
         <div className="grid grid-cols-2 gap-4 mt-6">
           {["Cotton", "Polestar"].map(cat => (
@@ -372,7 +351,7 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* Daily Entry Modal (সার্চ সহ) */}
+      {/* Daily Entry Modal */}
       {showDailyEntry && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
@@ -385,7 +364,6 @@ export default function ShopDashboardPage() {
                   <option value="Purchase">Purchase (ক্রয়)</option>
                 </select>
               </div>
-              
               {dailyEntryData.type === "Sale" && (
                 <>
                   <div>
@@ -401,7 +379,6 @@ export default function ShopDashboardPage() {
                   <div><label className="text-xs font-medium">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={dailyEntryData.qty} onChange={e => setDailyEntryData({...dailyEntryData, qty: e.target.value})} /></div>
                 </>
               )}
-
               {dailyEntryData.type === "Expense" && (
                 <div><label className="text-xs font-medium">Expense Category</label>
                   <select className="w-full border p-2 rounded" value={dailyEntryData.expenseType} onChange={e => setDailyEntryData({...dailyEntryData, expenseType: e.target.value})}>
@@ -412,7 +389,6 @@ export default function ShopDashboardPage() {
                   </select>
                 </div>
               )}
-
               <div><label className="text-xs">Title/Note</label><input required className="w-full border p-2 rounded" value={dailyEntryData.title} onChange={e => setDailyEntryData({...dailyEntryData, title: e.target.value})} /></div>
               <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={dailyEntryData.amount} onChange={e => setDailyEntryData({...dailyEntryData, amount: e.target.value})} /></div>
               <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowDailyEntry(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button></div>
@@ -435,10 +411,10 @@ export default function ShopDashboardPage() {
         </div>
       )}
 
-      {/* Order Modal (সার্চ সহ) */}
+      {/* Order Modal */}
       {showOrderModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+          <div className="bg-white p-5 rounded-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-4">{isEditOrder ? "Edit Delivery" : "Add Delivery"}</h3>
             <form onSubmit={handleOrderSave} className="space-y-3">
               <div><label className="text-xs">Garments Name</label><input required className="w-full border p-2 rounded" value={orderData.garments} onChange={e => setOrderData({...orderData, garments: e.target.value})} /></div>
@@ -454,3 +430,33 @@ export default function ShopDashboardPage() {
                     <div key={p.id} onClick={() => { setOrderData({...orderData, productId: p.id, amount: p.costPrice.toString()}); setProdSearch(""); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50">{p.productName} ({p.size}/{p.color}) - Stock: {p.stock}</div>
                   ))}
                   {searchedProducts.length === 0 && prodSearch && <div className="p-2 text-xs text-gray-500">No product found</div>}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={orderData.qty} onChange={e => setOrderData({...orderData, qty: e.target.value})} /></div>
+                <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={orderData.amount} onChange={e => setOrderData({...orderData, amount: e.target.value})} /></div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowOrderModal(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {showPaymentModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+            <h3 className="text-lg font-bold mb-4">{isEditPayment ? "Edit Payment" : "Add Payment"}</h3>
+            <form onSubmit={handlePaymentSave} className="space-y-3">
+              <div><label className="text-xs">Order No Ref (Optional)</label><input className="w-full border p-2 rounded" value={paymentData.orderNoRef} onChange={e => setPaymentData({...paymentData, orderNoRef: e.target.value})} /></div>
+              <div><label className="text-xs">Details (Note)</label><input className="w-full border p-2 rounded" value={paymentData.details} onChange={e => setPaymentData({...paymentData, details: e.target.value})} /></div>
+              <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={paymentData.amount} onChange={e => setPaymentData({...paymentData, amount: e.target.value})} /></div>
+              <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowPaymentModal(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-green-600 text-white rounded">Save Payment</button></div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
