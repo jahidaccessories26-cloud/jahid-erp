@@ -2,9 +2,9 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db, auth } from "../../lib/firebase";
-import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, deleteDoc, addDoc, increment } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, getDoc, updateDoc, setDoc, increment, deleteDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Package, Folder, ChevronRight, Search, Edit, Trash2, Users, Share2, MapPin, Phone } from "lucide-react";
+import { Store, ArrowLeft, Download, PlusCircle, DollarSign, X, Package, Folder, ChevronRight, Search, Edit, Trash2 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -17,45 +17,18 @@ export default function ShopDashboardPage() {
   
   const [shopInventories, setShopInventories] = useState<any[]>([]);
   const [shopStatements, setShopStatements] = useState<any[]>([]);
-  const [shopBuyers, setShopBuyers] = useState<any[]>([]);
-  const [shopBuyerOrders, setShopBuyerOrders] = useState<any[]>([]); 
 
-  // ভিউ স্টেট
-  const [viewMode, setViewMode] = useState<"dashboard" | "main" | "sub" | "product" | "buyers" | "buyer_statement">("dashboard");
+  const [viewMode, setViewMode] = useState<"dashboard" | "main" | "sub" | "product">("dashboard");
   const [selectedMain, setSelectedMain] = useState("");
   const [selectedSub, setSelectedSub] = useState("");
-  const [selectedBuyer, setSelectedBuyer] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // সার্চ স্টেট
-  const [prodSearch, setProdSearch] = useState("");
+  const [showCatModal, setShowCatModal] = useState(false);
+  const [catData, setCatData] = useState({ isEdit: false, oldName: "", newName: "" });
 
-  // ✅ প্রোডাক্ট এডিট স্টেট (নতুন)
-  const [editingProduct, setEditingProduct] = useState<any>(null);
-  const [editProdData, setEditProdData] = useState({ stock: 0, costPrice: 0 });
-
-  // ডেইলি এন্ট্রি স্টেট
-  const [showDailyEntry, setShowDailyEntry] = useState(false);
-  const [dailyEntryData, setDailyEntryData] = useState({ type: "Sale", title: "", amount: "", productId: "", qty: "", expenseType: "Shop Expense" });
-  
-  // বায়ার স্টেট
-  const [showBuyerModal, setShowBuyerModal] = useState(false);
-  const [buyerFormData, setBuyerFormData] = useState({ id: "", name: "", phone: "", address: "" });
-
-  // অর্ডার/ডেলিভারি/পেমেন্ট স্টেট
-  const [showOrderModal, setShowOrderModal] = useState(false);
-  const [isEditOrder, setIsEditOrder] = useState(false);
-  const [orderData, setOrderData] = useState({ id: "", garments: "", orderNo: "", styleNo: "", items: [] as any[] });
-  const [tempOrderItem, setTempOrderItem] = useState({ productId: "", productName: "", qty: "", amount: "" });
-
-  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
-  const [isEditDelivery, setIsEditDelivery] = useState(false);
-  const [deliveryData, setDeliveryData] = useState({ id: "", garments: "", orderNo: "", styleNo: "", items: [] as any[] });
-  const [tempDeliveryItem, setTempDeliveryItem] = useState({ productId: "", productName: "", qty: "", amount: "" });
-  
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [isEditPayment, setIsEditPayment] = useState(false);
-  const [paymentData, setPaymentData] = useState({ id: "", amount: "", details: "", orderNoRef: "" });
+  const [showModal, setShowModal] = useState(false);
+  const [isEdit, setIsEdit] = useState(false);
+  const [formData, setFormData] = useState<any>({ id: "", name: "", mainCategory: "", subCategory: "", variations: [] });
 
   useEffect(() => {
     const unsubAuth = auth.onAuthStateChanged(async (user) => {
@@ -84,175 +57,158 @@ export default function ShopDashboardPage() {
 
   useEffect(() => {
     if (!selectedShop) return;
-    
     const unsubInv = onSnapshot(query(collection(db, "shop_inventories")), (snapshot) => {
-      setShopInventories(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(item => item.shop === selectedShop));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setShopInventories(data.filter(item => item.shop === selectedShop));
     });
     const unsubStatements = onSnapshot(query(collection(db, "shop_statements")), (snapshot) => {
-      setShopStatements(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(item => item.shop === selectedShop));
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setShopStatements(data.filter(item => item.shop === selectedShop));
     });
-    const unsubBuyers = onSnapshot(query(collection(db, "buyers")), (snapshot) => {
-      setShopBuyers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(item => item.shop === selectedShop));
-    });
-    const unsubOrders = onSnapshot(query(collection(db, "buyer_orders")), (snapshot) => {
-      setShopBuyerOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(item => item.shop === selectedShop));
-    });
-
-    return () => { unsubInv(); unsubStatements(); unsubBuyers(); unsubOrders(); };
+    return () => { unsubInv(); unsubStatements(); };
   }, [selectedShop]);
 
-  // হিসাব
   const todayStr = new Date().toISOString().split("T")[0];
-  const todayStatements = shopStatements.filter(s => s.date?.startsWith(todayStr));
-  const todaySales = todayStatements.filter(s => s.type === 'Sale').reduce((sum, s) => sum + Number(s.amount || 0), 0);
-  const todayExpense = todayStatements.filter(s => s.type === 'Expense').reduce((sum, s) => sum + Number(s.amount || 0), 0);
-  const todayPurchase = todayStatements.filter(s => s.type === 'Purchase').reduce((sum, s) => sum + Number(s.amount || 0), 0);
+  const todaySales = shopStatements.filter(s => s.type === 'Sales' && s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+  const todayExpense = shopStatements.filter(s => s.type === 'Expense' && s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+  const todayPurchase = shopStatements.filter(s => s.type === 'Purchase' && s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
   const profitLoss = todaySales - (todayExpense + todayPurchase);
 
   let totalStockValue = 0;
   shopInventories.forEach(item => { totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0); });
 
-  // সার্চ করা প্রোডাক্ট
-  const searchedProducts = shopInventories.filter(p => 
-    p.productName.toLowerCase().includes(prodSearch.toLowerCase())
-  ).slice(0, 5);
+  const mainCategories = ["Cotton", "Polestar"];
 
-  // ✅ প্রোডাক্ট এডিট ফাংশন
-  const openEditProduct = (item: any) => {
-    setEditingProduct(item);
-    setEditProdData({ stock: item.stock, costPrice: item.costPrice });
+  const getCategoryFromName = (item: any) => {
+    const n = (item.productName || "").toLowerCase();
+    if (n.includes("cotton") || n.includes("catton")) return "Cotton";
+    if (n.includes("polestar") || n.includes("polertar")) return "Polestar";
+    return "Cotton"; 
   };
 
-  const handleUpdateProduct = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingProduct) return;
-    try {
-      await updateDoc(doc(db, "shop_inventories", editingProduct.id), {
-        stock: Number(editProdData.stock),
-        costPrice: Number(editProdData.costPrice)
-      });
-      setEditingProduct(null);
-      alert("প্রোডাক্ট আপডেট হয়েছে!");
-    } catch (error) { alert("সমস্যা হয়েছে!"); }
-  };
+  const subCategories = Array.from(new Set(
+    shopInventories
+      .filter(p => {
+        const main = p.mainCategory || getCategoryFromName(p);
+        return main === selectedMain;
+      })
+      .map(p => p.subCategory || p.category || "Uncategorized")
+  ));
 
-  // ✅ প্রোডাক্ট ডিলিট ফাংশন
-  const deleteProduct = async (id: string, name: string) => {
-    if (window.confirm(`"${name}" ডিলিট করতে চান?`)) {
-      await deleteDoc(doc(db, "shop_inventories", id));
-    }
-  };
-
-  // ✅ ক্যাটাগরি Share ফাংশন
-  const handleShareCategory = () => {
-    const catProducts = shopInventories.filter(p => p.mainCategory === selectedMain && p.subCategory === selectedSub);
-    if (catProducts.length === 0) return alert("ডেটা নেই!");
+  const filteredProducts = shopInventories.filter(p => {
+    const main = p.mainCategory || getCategoryFromName(p);
+    const sub = p.subCategory || p.category || "Uncategorized";
     
+    if (viewMode === "product") return main === selectedMain && sub === selectedSub;
+    return true;
+  }).filter(p => (p.productName || "").toLowerCase().includes(searchTerm.toLowerCase()));
+
+  const downloadPDF = async () => {
+    if (filteredProducts.length === 0) return alert("ডেটা নেই!");
     const doc = new jsPDF();
-    doc.setFontSize(16); doc.text(`${selectedSub} - ${selectedShop}`, 14, 15);
+    doc.setFontSize(16); 
+    doc.text(`Stock Report - ${selectedShop}`, 14, 15);
+    doc.text(viewMode === "product" ? `Category: ${selectedSub}` : "All Categories", 14, 22);
     
-    const tableData = catProducts.map(item => [
-      item.productName, item.size || "-", item.color || "-", item.stock, item.costPrice.toString()
+    const tableData = filteredProducts.map(item => [
+      item.productName, item.size || "-", item.color || "-", item.stock, item.costPrice || "0", ((item.stock || 0) * (item.costPrice || 0)).toString()
     ]);
     
-    autoTable(doc, { head: [['Product', 'Size', 'Color', 'Stock', 'Rate']], body: tableData, startY: 25 });
-    
+    autoTable(doc, { head: [['Product', 'Size', 'Color', 'Stock', 'Rate', 'Total']], body: tableData, startY: 30, styles: { fontSize: 8 }, headStyles: { fillColor: [31, 45, 92] } });
+
     const pdfBlob = doc.output('blob'); 
-    const file = new File([pdfBlob], `${selectedSub}_Stock.pdf`, { type: 'application/pdf' });
+    const file = new File([pdfBlob], `Stock_${selectedShop}.pdf`, { type: 'application/pdf' });
     
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      navigator.share({ files: [file], title: selectedSub }).catch(console.error);
-    } else {
-      doc.save(`${selectedSub}_Stock.pdf`);
-    }
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { 
+      try { await navigator.share({ files: [file], title: 'Stock Report' }); } catch (e) {} 
+    } else { doc.save(`Stock_${selectedShop}.pdf`); }
   };
 
-  // বায়ার সেভ
-  const handleBuyerSave = async (e: React.FormEvent) => {
+  const handleDeleteCategory = async (catName: string) => {
+    if (!window.confirm(`"${catName}" ক্যাটাগরির সব প্রোডাক্ট ডিলিট করতে চান?`)) return;
+    try {
+      const itemsToDelete = shopInventories.filter(p => (p.subCategory || p.category) === catName);
+      for (const item of itemsToDelete) { await deleteDoc(doc(db, "shop_inventories", item.id)); }
+      alert("ক্যাটাগরি ডিলিট হয়েছে!");
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
+  };
+
+  const handleDeleteProduct = async (id: string, name: string) => {
+    if (!window.confirm(`"${name}" ডিলিট করতে চান?`)) return;
+    try { await deleteDoc(doc(db, "shop_inventories", id)); } catch (error) { alert("সমস্যা হয়েছে!"); }
+  };
+
+  const openAddModal = () => { 
+    setIsEdit(false); 
+    setFormData({ id: "", name: "", mainCategory: selectedMain, subCategory: selectedSub, variations: [{ size: "", color: "", stock: 0, costPrice: 0 }] }); 
+    setShowModal(true); 
+  };
+  
+  const openEditModal = (item: any) => { 
+    setIsEdit(true); 
+    setFormData({ id: item.id, name: item.productName, mainCategory: item.mainCategory || getCategoryFromName(item), subCategory: item.subCategory || item.category || "Uncategorized", variations: [{ size: item.size, color: item.color, stock: item.stock, costPrice: item.costPrice }] }); 
+    setShowModal(true); 
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (buyerFormData.id) {
-        await updateDoc(doc(db, "buyers", buyerFormData.id), { name: buyerFormData.name, phone: buyerFormData.phone, address: buyerFormData.address });
+      if (isEdit) {
+        await updateDoc(doc(db, "shop_inventories", formData.id), {
+          productName: formData.name, mainCategory: formData.mainCategory, subCategory: formData.subCategory, size: formData.variations[0].size, color: formData.variations[0].color, stock: Number(formData.variations[0].stock), costPrice: Number(formData.variations[0].costPrice)
+        });
       } else {
-        await addDoc(collection(db, "buyers"), { shop: selectedShop, name: buyerFormData.name, phone: buyerFormData.phone, address: buyerFormData.address, createdAt: new Date().toISOString() });
-      }
-      setShowBuyerModal(false); setBuyerFormData({ id: "", name: "", phone: "", address: "" }); alert("সেভ হয়েছে!");
-    } catch (error) { alert("সমস্যা হয়েছে!"); }
-  };
-
-  // অর্ডার/ডেলিভারি/পেমেন্ট সেভ
-  const handleOrderSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (orderData.items.length === 0) return alert("কমপক্ষে একটি আইটেম যোগ করুন!");
-    try {
-      if (isEditOrder) await updateDoc(doc(db, "buyer_orders", orderData.id), { items: orderData.items });
-      else await addDoc(collection(db, "buyer_orders"), {
-        shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, items: orderData.items, type: "Order", date: new Date().toISOString()
-      });
-      setShowOrderModal(false); setOrderData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); alert("সেভ হয়েছে!");
-    } catch (error) { alert("সমস্যা হয়েছে!"); }
-  };
-
-  const handleDeliverySave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (deliveryData.items.length === 0) return alert("কমপক্ষে একটি আইটেম যোগ করুন!");
-    try {
-      for (const item of deliveryData.items) {
-        const prod = shopInventories.find(p => p.id === item.productId);
-        if (!prod || prod.stock < Number(item.qty)) return alert(`${item.productName} এর স্টক নেই!`);
-      }
-      if (isEditDelivery) await updateDoc(doc(db, "buyer_orders", deliveryData.id), { items: deliveryData.items });
-      else {
-        for (const item of deliveryData.items) await updateDoc(doc(db, "shop_inventories", item.productId), { stock: increment(-Number(item.qty)) });
-        await addDoc(collection(db, "buyer_orders"), {
-          shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, garments: deliveryData.garments, orderNo: deliveryData.orderNo, styleNo: deliveryData.styleNo, items: deliveryData.items, type: "Delivery", date: new Date().toISOString()
+        const shopInvId = `${selectedShop}_${formData.name}_${formData.variations[0].size}_${formData.variations[0].color}`.replace(/\s+/g, '_').replace(/\//g, '-');
+        await setDoc(doc(db, "shop_inventories", shopInvId), {
+          shop: selectedShop, productName: formData.name, category: formData.subCategory, mainCategory: formData.mainCategory, subCategory: formData.subCategory,
+          size: formData.variations[0].size || "Unknown", color: formData.variations[0].color || "Unknown", stock: Number(formData.variations[0].stock), costPrice: Number(formData.variations[0].costPrice)
         });
       }
-      setShowDeliveryModal(false); setDeliveryData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); alert("সেভ হয়েছে!");
+      setShowModal(false); alert("সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  const handlePaymentSave = async (e: React.FormEvent) => {
+  const handleCatSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      if (isEditPayment) await updateDoc(doc(db, "buyer_orders", paymentData.id), { amount: Number(paymentData.amount) });
-      else await addDoc(collection(db, "buyer_orders"), {
-        shop: selectedShop, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, type: "Payment", amount: Number(paymentData.amount), details: paymentData.details, orderNoRef: paymentData.orderNoRef, date: new Date().toISOString()
-      });
-      setShowPaymentModal(false); setPaymentData({ id: "", amount: "", details: "", orderNoRef: "" }); alert("সেভ হয়েছে!");
+      if (catData.isEdit) {
+        const itemsToUpdate = shopInventories.filter(item => (item.subCategory || item.category) === catData.oldName && (item.mainCategory || getCategoryFromName(item)) === selectedMain);
+        for (const item of itemsToUpdate) { await updateDoc(doc(db, "shop_inventories", item.id), { subCategory: catData.newName, category: catData.newName }); }
+      } else {
+        const shopInvId = `${selectedShop}_${selectedMain}_${catData.newName}_Category`.replace(/\s+/g, '_');
+        await setDoc(doc(db, "shop_inventories", shopInvId), {
+          shop: selectedShop, productName: "New Product", category: catData.newName, mainCategory: selectedMain, subCategory: catData.newName,
+          size: "Unknown", color: "Unknown", stock: 0, costPrice: 0
+        });
+      }
+      setShowCatModal(false); alert("সফল হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  const deleteBuyer = async (id: string) => { if(window.confirm("ডিলিট করবেন?")) await deleteDoc(doc(db, "buyers", id)); };
-  const deleteOrder = async (id: string, type: string, items?: any[]) => { 
-    if(window.confirm("ডিলিট করবেন?")) {
-      if(type === "Delivery" && items) for (const item of items) await updateDoc(doc(db, "shop_inventories", item.productId), { stock: increment(Number(item.qty)) });
-      await deleteDoc(doc(db, "buyer_orders", id)); 
-    }
+  const handleBack = () => {
+    if (viewMode === "product") setViewMode("sub");
+    else if (viewMode === "sub") setViewMode("main");
+    else if (viewMode === "main") setViewMode("dashboard");
+    else router.push("/");
   };
-
-  const buyerOrders = shopBuyerOrders.filter(o => o.buyerId === selectedBuyer?.id).sort((a,b) => new Date(b.date) - new Date(a.date));
-  const buyerTotalBill = buyerOrders.filter(o => o.type === "Delivery").reduce((sum, o) => sum + o.items.reduce((s:number, i:any) => s + Number(i.amount), 0), 0);
-  const buyerTotalPaid = buyerOrders.filter(o => o.type === "Payment").reduce((sum, o) => sum + Number(o.amount || 0), 0);
-  const buyerDue = buyerTotalBill - buyerTotalPaid;
 
   return (
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
-          <button onClick={() => {
-            if (viewMode === "dashboard") router.push("/");
-            else if (viewMode === "main" || viewMode === "buyers") setViewMode("dashboard");
-            else if (viewMode === "sub") setViewMode("main");
-            else if (viewMode === "product") setViewMode("sub");
-            else if (viewMode === "buyer_statement") setViewMode("buyers");
-          }} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
+          <button onClick={handleBack} className="bg-gray-100 p-2 rounded-lg hover:bg-gray-200 transition">
             <ArrowLeft size={20} className="text-gray-600" />
           </button>
           <h2 className="text-xl md:text-2xl font-bold text-brand-navy">
-            {viewMode === "dashboard" ? "Shop Dashboard" : viewMode === "main" ? "Stock Categories" : viewMode === "sub" ? selectedMain : viewMode === "product" ? selectedSub : viewMode === "buyers" ? "Buyers" : selectedBuyer?.name}
+            {viewMode === "dashboard" ? "Shop Dashboard" : viewMode === "main" ? "Stock Categories" : viewMode === "sub" ? selectedMain : selectedSub}
           </h2>
         </div>
+        
+        {viewMode === "product" && (
+          <button onClick={downloadPDF} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 shadow-sm">
+            <Download size={16} /> PDF / Share
+          </button>
+        )}
       </div>
 
       {viewMode === "dashboard" && (
@@ -263,29 +219,18 @@ export default function ShopDashboardPage() {
               {shops.map((shop) => <option key={shop.id} value={shop.name}>{shop.name}</option>)}
             </select>
           </div>
-
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div className="bg-white p-3 rounded-xl border-t-4 border-green-500"><div className="text-xs text-gray-500">Today's Sales</div><h3 className="text-lg font-bold text-green-600">{todaySales}</h3></div>
             <div className="bg-white p-3 rounded-xl border-t-4 border-red-500"><div className="text-xs text-gray-500">Expense</div><h3 className="text-lg font-bold text-red-600">{todayExpense}</h3></div>
             <div className="bg-white p-3 rounded-xl border-t-4 border-blue-500"><div className="text-xs text-gray-500">Purchase</div><h3 className="text-lg font-bold text-blue-600">{todayPurchase}</h3></div>
             <div className="bg-white p-3 rounded-xl border-t-4 border-brand-navy"><div className="text-xs text-gray-500">Profit/Loss</div><h3 className="text-lg font-bold text-brand-navy">{profitLoss}</h3></div>
           </div>
-
-          <div className="bg-white p-4 rounded-xl border-t-4 border-green-500 mb-4">
+          <div className="bg-white p-4 rounded-xl border-t-4 border-green-500 mb-6">
             <div className="text-sm text-gray-500">Total Stock Value</div>
             <h3 className="text-2xl font-bold text-green-600">{totalStockValue.toLocaleString('en-IN')}</h3>
           </div>
-
-          <div className="grid grid-cols-2 gap-2 mb-4">
-            <button onClick={() => setShowDailyEntry(true)} className="bg-brand-navy text-white p-3 rounded-lg flex items-center justify-center gap-2 font-bold text-sm">
-              <PlusCircle size={16} /> Daily Entry
-            </button>
-            <button onClick={() => setViewMode("buyers")} className="bg-blue-600 text-white p-3 rounded-lg flex items-center justify-center gap-2 font-bold text-sm">
-              <Users size={16} /> Buyers / Parties
-            </button>
-          </div>
-
-          <div onClick={() => setViewMode("main")} className="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md cursor-pointer flex items-center justify-between mb-6">
+          
+          <div onClick={() => setViewMode("main")} className="bg-white p-3 rounded-xl shadow-sm border border-gray-200 hover:shadow-md cursor-pointer flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="bg-brand-navy/10 p-1.5 rounded-lg"><Folder size={20} className="text-brand-navy" /></div>
               <div>
@@ -298,120 +243,9 @@ export default function ShopDashboardPage() {
         </>
       )}
 
-      {/* ✅ আগের মতো সুন্দর প্রোডাক্ট ডিজাইন */}
-      {viewMode === "product" && (
-        <div>
-          <div className="flex justify-between items-center mb-4 gap-2">
-            <div className="bg-white p-2 rounded-lg border flex items-center gap-2 w-full max-w-xs">
-              <Search size={16} className="text-gray-400" />
-              <input type="text" placeholder="Search..." className="outline-none text-sm w-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-            </div>
-            <button onClick={handleShareCategory} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 shadow-sm">
-              <Share2 size={16} /> Share
-            </button>
-          </div>
-
-          {shopInventories.filter(p => p.mainCategory === selectedMain && p.subCategory === selectedSub && p.productName.toLowerCase().includes(searchTerm.toLowerCase())).map((item) => (
-            <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-3">
-              <div className="flex justify-between items-start border-b pb-2">
-                <div>
-                  <h3 className="text-base font-bold text-brand-navy">{item.productName}</h3>
-                  <div className="text-[10px] text-gray-700 bg-gray-100 inline-block px-1.5 py-0.5 rounded mt-1">{item.size} / {item.color}</div>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => openEditProduct(item)} className="p-1.5 text-blue-600 bg-blue-50 rounded"><Edit size={16}/></button>
-                  <button onClick={() => deleteProduct(item.id, item.productName)} className="p-1.5 text-red-600 bg-red-50 rounded"><Trash2 size={16}/></button>
-                </div>
-              </div>
-              <div className="flex justify-between items-center pt-2 mt-2">
-                <span className="text-xs text-gray-500">Stock: <strong className="text-green-600 text-sm">{item.stock}</strong></span>
-                <span className="text-xs text-gray-500">Rate: <strong className="text-brand-navy text-sm">{item.costPrice}</strong></span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {viewMode === "buyers" && (
-        <div>
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="font-bold text-gray-700">All Buyers</h3>
-            <button onClick={() => { setBuyerFormData({ id: "", name: "", phone: "", address: "" }); setShowBuyerModal(true); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-1">
-              <PlusCircle size={16}/> Add Buyer
-            </button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {shopBuyers.map(buyer => (
-              <div key={buyer.id} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
-                <div className="cursor-pointer" onClick={() => { setSelectedBuyer(buyer); setViewMode("buyer_statement"); }}>
-                  <p className="font-bold text-brand-navy text-sm">{buyer.name}</p>
-                  <p className="text-[11px] text-gray-500 flex items-center gap-1"><Phone size={10}/> {buyer.phone}</p>
-                </div>
-                <div className="flex gap-1">
-                  <button onClick={() => { setBuyerFormData(buyer); setShowBuyerModal(true); }} className="text-blue-500 p-1 hover:bg-blue-50 rounded"><Edit size={14}/></button>
-                  <button onClick={() => deleteBuyer(buyer.id)} className="text-red-500 p-1 hover:bg-red-50 rounded"><Trash2 size={14}/></button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {viewMode === "buyer_statement" && selectedBuyer && (
-        <div>
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            <div className="bg-white p-2 rounded-lg border-t-2 border-blue-500 text-center"><p className="text-[10px] text-gray-500">Total Bill</p><p className="font-bold text-blue-600">{buyerTotalBill}</p></div>
-            <div className="bg-white p-2 rounded-lg border-t-2 border-green-500 text-center"><p className="text-[10px] text-gray-500">Paid</p><p className="font-bold text-green-600">{buyerTotalPaid}</p></div>
-            <div className="bg-white p-2 rounded-lg border-t-2 border-red-500 text-center"><p className="text-[10px] text-gray-500">Due</p><p className="font-bold text-red-600">{buyerDue}</p></div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2 mb-4">
-            <button onClick={() => { setIsEditOrder(false); setOrderData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); setShowOrderModal(true); }} className="bg-blue-600 text-white py-2 rounded-lg text-xs font-medium flex justify-center items-center gap-1"><PlusCircle size={14}/> Order</button>
-            <button onClick={() => { setIsEditDelivery(false); setDeliveryData({ id: "", garments: "", orderNo: "", styleNo: "", items: [] }); setShowDeliveryModal(true); }} className="bg-brand-navy text-white py-2 rounded-lg text-xs font-medium flex justify-center items-center gap-1"><PlusCircle size={14}/> Delivery</button>
-            <button onClick={() => { setIsEditPayment(false); setPaymentData({ id: "", amount: "", details: "", orderNoRef: "" }); setShowPaymentModal(true); }} className="bg-green-600 text-white py-2 rounded-lg text-xs font-medium flex justify-center items-center gap-1"><PlusCircle size={14}/> Payment</button>
-          </div>
-
-          <div className="flex justify-end mb-2">
-             <button onClick={() => {
-                let text = `Statement for ${selectedBuyer.name}\nTotal Bill: ${buyerTotalBill}\nPaid: ${buyerTotalPaid}\nDue: ${buyerDue}\n\nDetails:\n`;
-                buyerOrders.forEach(o => { text += `${new Date(o.date).toLocaleDateString()} - ${o.type} - ৳${o.type === 'Payment' ? o.amount : o.items.reduce((s:number, i:any)=>s+Number(i.amount),0)}\n`; });
-                if(navigator.share) navigator.share({ title: 'Statement', text });
-                else alert("Your browser doesn't support share.");
-             }} className="text-brand-navy text-sm flex items-center gap-1 font-bold"><Share2 size={16}/> Share Statement</button>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-             <div className="p-3 border-b bg-gray-50 font-bold text-gray-700 text-sm">Statement Ledger</div>
-             <div className="p-3 space-y-3">
-              {buyerOrders.length === 0 && <p className="text-center text-sm text-gray-400 py-2">কোনো লেনদেন নেই।</p>}
-              {buyerOrders.map((ord) => (
-                <div key={ord.id} className="flex justify-between items-start bg-gray-50 p-3 rounded-lg border border-gray-200">
-                  <div>
-                    <p className="font-bold text-brand-navy text-sm">{ord.type} {ord.type === 'Delivery' && `(${ord.garments})`}</p>
-                    {ord.type === "Delivery" && ord.items.map((it:any, idx:number) => (
-                       <p key={idx} className="text-[10px] text-gray-500">- {it.productName} ({it.qty} pcs)</p>
-                    ))}
-                  </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className={`font-bold text-sm ${ord.type === 'Payment' ? 'text-green-600' : 'text-brand-navy'}`}>৳{ord.type === 'Payment' ? ord.amount : ord.items.reduce((s:number, i:any)=>s+Number(i.amount),0)}</span>
-                    <div className="flex gap-1">
-                       <button onClick={() => {
-                         if(ord.type === "Payment") { setIsEditPayment(true); setPaymentData({ id: ord.id, amount: ord.amount, details: ord.details || "", orderNoRef: ord.orderNoRef || "" }); setShowPaymentModal(true); }
-                         else if(ord.type === "Delivery") { setIsEditDelivery(true); setDeliveryData({ id: ord.id, garments: ord.garments, orderNo: ord.orderNo, styleNo: ord.styleNo, items: ord.items }); setShowDeliveryModal(true); }
-                       }} className="text-blue-500 bg-blue-50 p-1 rounded"><Edit size={12}/></button>
-                       <button onClick={() => deleteOrder(ord.id, ord.type, ord.items)} className="text-red-500 bg-red-50 p-1 rounded"><Trash2 size={12}/></button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-             </div>
-          </div>
-        </div>
-      )}
-
       {viewMode === "main" && (
         <div className="grid grid-cols-2 gap-4 mt-6">
-          {["Cotton", "Polestar"].map(cat => (
+          {mainCategories.map(cat => (
             <div key={cat} onClick={() => { setSelectedMain(cat); setViewMode("sub"); }} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md cursor-pointer flex flex-col items-center gap-2">
               <Folder size={32} className="text-brand-navy" />
               <h3 className="text-lg font-bold text-brand-navy">{cat}</h3>
@@ -419,127 +253,107 @@ export default function ShopDashboardPage() {
           ))}
         </div>
       )}
+
       {viewMode === "sub" && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {Array.from(new Set(shopInventories.filter(p => p.mainCategory === selectedMain).map(p => p.subCategory))).map(sub => (
-            <div key={sub} onClick={() => { setSelectedSub(sub); setViewMode("product"); }} className="bg-white p-4 rounded-xl shadow-sm cursor-pointer flex items-center justify-between">
-              <span className="font-bold text-gray-700">{sub}</span><ChevronRight size={18} className="text-gray-400" />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ✅ প্রোডাক্ট এডিট মডাল */}
-      {editingProduct && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-4">Edit Product</h3>
-            <div className="text-xs text-gray-500 mb-3">{editingProduct.productName} ({editingProduct.size}/{editingProduct.color})</div>
-            <form onSubmit={handleUpdateProduct} className="space-y-3">
-              <div><label className="text-xs">Stock</label><input type="number" required className="w-full border p-2 rounded font-bold" value={editProdData.stock} onChange={e => setEditProdData({...editProdData, stock: Number(e.target.value)})} /></div>
-              <div><label className="text-xs">Cost Price (৳)</label><input type="number" required className="w-full border p-2 rounded" value={editProdData.costPrice} onChange={e => setEditProdData({...editProdData, costPrice: Number(e.target.value)})} /></div>
-              <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setEditingProduct(null)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button></div>
-            </form>
+        <div>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-bold text-gray-700">Sub Categories</h3>
+            <button onClick={() => { setCatData({ isEdit: false, oldName: "", newName: "" }); setShowCatModal(true); }} className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm flex items-center gap-1">
+              <PlusCircle size={16}/> Add Category
+            </button>
           </div>
-        </div>
-      )}
-
-      {/* Daily Entry Modal */}
-      {showDailyEntry && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-4">Add Daily Entry</h3>
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              await addDoc(collection(db, "shop_statements"), { shop: selectedShop, type: dailyEntryData.type, title: dailyEntryData.title, amount: Number(dailyEntryData.amount), date: new Date().toISOString() });
-              setShowDailyEntry(false); alert("Saved!");
-            }} className="space-y-3">
-              <div><label className="text-xs font-medium">Entry Type</label>
-                <select className="w-full border p-2 rounded" value={dailyEntryData.type} onChange={e => setDailyEntryData({...dailyEntryData, type: e.target.value})}>
-                  <option value="Sale">Sale</option><option value="Expense">Expense</option><option value="Purchase">Purchase</option>
-                </select>
+          
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            {subCategories.map(sub => (
+              <div key={sub} className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 flex items-center justify-between">
+                <span className="font-bold text-gray-700 text-sm cursor-pointer" onClick={() => { setSelectedSub(sub); setViewMode("product"); }}>{sub}</span>
+                <div className="flex gap-1">
+                  <button onClick={() => handleDeleteCategory(sub)} className="text-red-500 p-1 hover:bg-red-50 rounded"><Trash2 size={14} /></button>
+                </div>
               </div>
-              <div><label className="text-xs">Title/Note</label><input required className="w-full border p-2 rounded" value={dailyEntryData.title} onChange={e => setDailyEntryData({...dailyEntryData, title: e.target.value})} /></div>
-              <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={dailyEntryData.amount} onChange={e => setDailyEntryData({...dailyEntryData, amount: e.target.value})} /></div>
-              <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowDailyEntry(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button></div>
-            </form>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Buyer Modal */}
-      {showBuyerModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-4">{buyerFormData.id ? "Edit Buyer" : "Add Buyer"}</h3>
-            <form onSubmit={handleBuyerSave} className="space-y-3">
-              <div><label className="text-xs">Buyer Name</label><input required className="w-full border p-2 rounded" value={buyerFormData.name} onChange={e => setBuyerFormData({...buyerFormData, name: e.target.value})} /></div>
-              <div><label className="text-xs">Phone</label><input className="w-full border p-2 rounded" value={buyerFormData.phone} onChange={e => setBuyerFormData({...buyerFormData, phone: e.target.value})} /></div>
-              <div><label className="text-xs">Address</label><input className="w-full border p-2 rounded" value={buyerFormData.address} onChange={e => setBuyerFormData({...buyerFormData, address: e.target.value})} /></div>
-              <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowBuyerModal(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button></div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Order Modal */}
-      {showOrderModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-bold mb-4">Add Order</h3>
-            <div className="space-y-3 bg-gray-50 p-3 rounded mb-3 border">
-              <input placeholder="Product Name..." className="w-full border p-2 rounded text-sm" value={tempOrderItem.productName} onChange={e => setTempOrderItem({...tempOrderItem, productName: e.target.value})} />
-              <div className="grid grid-cols-2 gap-2">
-                <input placeholder="Qty" type="number" className="w-full border p-2 rounded text-sm" value={tempOrderItem.qty} onChange={e => setTempOrderItem({...tempOrderItem, qty: e.target.value})} />
-                <input placeholder="Amount ৳" type="number" className="w-full border p-2 rounded text-sm" value={tempOrderItem.amount} onChange={e => setTempOrderItem({...tempOrderItem, amount: e.target.value})} />
-              </div>
-              <button type="button" onClick={() => { setOrderData({...orderData, items: [...orderData.items, tempOrderItem]}); setTempOrderItem({ productId: "", productName: "", qty: "", amount: "" }); }} className="w-full bg-blue-600 text-white p-2 rounded text-sm font-bold">+ Add Item</button>
+      {/* ✅ আগের মতো সুন্দর কার্ড ডিজাইন */}
+      {viewMode === "product" && (
+        <div>
+          <div className="flex justify-between items-center mb-4 gap-2">
+            <div className="bg-white p-2 rounded-lg border flex items-center gap-2 w-full max-w-xs">
+              <Search size={16} className="text-gray-400" />
+              <input type="text" placeholder="Search..." className="outline-none text-sm w-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
-            {orderData.items.map((it, i) => <div key={i} className="text-xs bg-gray-100 p-2 rounded mb-1 flex justify-between">{it.productName} ({it.qty} pcs) - ৳{it.amount}</div>)}
-            <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowOrderModal(false)} className="px-4 py-2 border rounded text-sm">Cancel</button><button onClick={handleOrderSave} className="px-4 py-2 bg-brand-navy text-white rounded text-sm">Save</button></div>
+            <button onClick={openAddModal} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 whitespace-nowrap"><PlusCircle size={16}/> Add Product</button>
           </div>
-        </div>
-      )}
-
-      {/* Delivery Modal */}
-      {showDeliveryModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-            <h3 className="text-lg font-bold mb-4">Add Delivery</h3>
-            <div className="space-y-3 bg-gray-50 p-3 rounded mb-3 border">
-              <div className="relative">
-                <input placeholder="Search Product..." className="w-full border p-2 rounded text-sm" value={tempDeliveryItem.productName} onChange={e => setTempDeliveryItem({...tempDeliveryItem, productName: e.target.value})} />
-                {tempDeliveryItem.productName && !tempDeliveryItem.productId && (
-                  <div className="absolute z-10 w-full bg-white border mt-1 rounded shadow max-h-32 overflow-y-auto">
-                    {searchedProducts.map(p => <div key={p.id} onClick={() => setTempDeliveryItem({...tempDeliveryItem, productId: p.id, productName: p.productName, amount: p.costPrice.toString()})} className="p-2 text-xs border-b hover:bg-blue-50 cursor-pointer">{p.productName} - Stock: {p.stock}</div>)}
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredProducts.map((item) => (
+              <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
+                <div className="flex justify-between items-start mb-3 border-b pb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="bg-brand-navy/10 p-1.5 rounded-lg"><Package className="text-brand-navy" size={20} /></div>
+                    <div>
+                      <h3 className="text-base font-bold text-brand-navy">{item.productName}</h3>
+                      <div className="text-[10px] text-gray-700 bg-gray-100 inline-block px-1.5 py-0.5 rounded mt-1">{item.size} / {item.color}</div>
+                    </div>
                   </div>
-                )}
+                  <div className="flex gap-1">
+                    <button onClick={() => openEditModal(item)} className="bg-blue-50 text-blue-600 p-2 rounded-lg hover:bg-blue-100 transition"><Edit size={16} /></button>
+                    <button onClick={() => handleDeleteProduct(item.id, item.productName)} className="bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100 transition"><Trash2 size={16} /></button>
+                  </div>
+                </div>
+                
+                <div className="flex justify-between items-center pt-2 mt-auto text-sm">
+                  <div className="text-gray-500">Stock: <span className="font-bold text-green-600">{item.stock}</span></div>
+                  <div className="text-gray-500">Rate: <span className="font-bold text-brand-navy">৳{item.costPrice}</span></div>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <input placeholder="Qty" type="number" className="w-full border p-2 rounded text-sm" value={tempDeliveryItem.qty} onChange={e => setTempDeliveryItem({...tempDeliveryItem, qty: e.target.value})} />
-                <input placeholder="Amount ৳" type="number" className="w-full border p-2 rounded text-sm" value={tempDeliveryItem.amount} onChange={e => setTempDeliveryItem({...tempDeliveryItem, amount: e.target.value})} />
-              </div>
-              <button type="button" onClick={() => { if(!tempDeliveryItem.productId) return alert("Select product!"); setDeliveryData({...deliveryData, items: [...deliveryData.items, tempDeliveryItem]}); setTempDeliveryItem({ productId: "", productName: "", qty: "", amount: "" }); }} className="w-full bg-blue-600 text-white p-2 rounded text-sm font-bold">+ Add Item</button>
-            </div>
-            {deliveryData.items.map((it, i) => <div key={i} className="text-xs bg-gray-100 p-2 rounded mb-1 flex justify-between">{it.productName} ({it.qty} pcs) - ৳{it.amount}</div>)}
-            <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowDeliveryModal(false)} className="px-4 py-2 border rounded text-sm">Cancel</button><button onClick={handleDeliverySave} className="px-4 py-2 bg-brand-navy text-white rounded text-sm">Save</button></div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Payment Modal */}
-      {showPaymentModal && (
+      {showCatModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-4">{isEditPayment ? "Edit Payment" : "Add Payment"}</h3>
-            <form onSubmit={handlePaymentSave} className="space-y-3">
-              <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={paymentData.amount} onChange={e => setPaymentData({...paymentData, amount: e.target.value})} /></div>
-              <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowPaymentModal(false)} className="px-4 py-2 border rounded">Cancel</button><button type="submit" className="px-4 py-2 bg-green-600 text-white rounded">Save</button></div>
+            <h3 className="text-lg font-bold mb-4">Add New Category</h3>
+            <form onSubmit={handleCatSave} className="space-y-3">
+              <div>
+                <label className="text-xs font-medium">Category Name</label>
+                <input required className="w-full border p-2 rounded" value={catData.newName} onChange={e => setCatData({...catData, newName: e.target.value})} />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowCatModal(false)} className="px-4 py-2 border rounded">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button>
+              </div>
             </form>
           </div>
         </div>
       )}
 
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-4">{isEdit ? "Edit Product" : "Add New Product"}</h3>
+            <form onSubmit={handleSave} className="space-y-3">
+              <div><label className="text-xs">Product Name</label><input required className="w-full border p-2 rounded" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs">Size</label><input className="w-full border p-2 rounded" value={formData.variations[0]?.size} onChange={e => { const v = [...formData.variations]; v[0].size = e.target.value; setFormData({...formData, variations: v}); }} /></div>
+                <div><label className="text-xs">Color</label><input className="w-full border p-2 rounded" value={formData.variations[0]?.color} onChange={e => { const v = [...formData.variations]; v[0].color = e.target.value; setFormData({...formData, variations: v}); }} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs">Stock</label><input type="number" className="w-full border p-2 rounded" value={formData.variations[0]?.stock} onChange={e => { const v = [...formData.variations]; v[0].stock = e.target.value; setFormData({...formData, variations: v}); }} /></div>
+                <div><label className="text-xs">Cost</label><input type="number" className="w-full border p-2 rounded" value={formData.variations[0]?.costPrice} onChange={e => { const v = [...formData.variations]; v[0].costPrice = e.target.value; setFormData({...formData, variations: v}); }} /></div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
