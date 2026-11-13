@@ -4,43 +4,42 @@ import { useState, useEffect, Suspense } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, orderBy } from "firebase/firestore";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Search, ArrowLeft, Download, Store, Edit, Trash2 } from "lucide-react";
+import { Search, ArrowLeft, Download, Store, Edit, Trash2, X } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
-function SalesContent() {
+function SalesHistoryContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const urlShop = searchParams.get("shop"); // URL থেকে দোকানের নাম নিচ্ছে
+  const shopParam = searchParams.get("shop"); // URL থেকে দোকানের নাম নিচ্ছে
 
   const [shops, setShops] = useState<any[]>([]);
-  const [selectedShop, setSelectedShop] = useState("All Shops");
   const [sales, setSales] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  
+  // ✅ ডিফল্টভাবে URL-এর দোকান সিলেক্ট থাকবে
+  const [selectedShop, setSelectedShop] = useState(shopParam || "All Shops");
 
+  // এডিট স্টেট
   const [editingSale, setEditingSale] = useState<any>(null);
   const [editData, setEditData] = useState({ title: "", amount: 0 });
 
-  // ✅ মূল ফিক্স: URL-এ দোকানের নাম থাকলে অটোমেটিক সেটা সিলেক্ট হবে
   useEffect(() => {
-    if (urlShop) {
-      setSelectedShop(urlShop);
-    }
-  }, [urlShop]);
-
-  // ডেটা লোড
-  useEffect(() => {
+    // দোকানের লিস্ট লোড
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
       setShops(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
     });
+
+    // সেলস লোড
     const unsubSales = onSnapshot(query(collection(db, "shop_statements"), orderBy("date", "desc")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setSales(data.filter(s => s.type === 'Sale'));
     });
+
     return () => { unsubShops(); unsubSales(); };
   }, []);
 
-  // ফিল্টারিং লজিক
+  // ডেটা ফিল্টার
   const filteredSales = sales
     .filter(s => selectedShop === "All Shops" || s.shop === selectedShop)
     .filter(s => (s.title || "").toLowerCase().includes(searchTerm.toLowerCase()));
@@ -51,18 +50,20 @@ function SalesContent() {
   // এডিট সেভ
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
-    await updateDoc(doc(db, "shop_statements", editingSale.id), { title: editData.title, amount: Number(editData.amount) });
-    setEditingSale(null); alert("আপডেট হয়েছে!");
+    try {
+      await updateDoc(doc(db, "shop_statements", editingSale.id), { title: editData.title, amount: Number(editData.amount) });
+      setEditingSale(null); alert("আপডেট হয়েছে!");
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
   // ডিলিট
   const handleDelete = async (id: string) => {
-    if (window.confirm("এই সেলস ডিলিট করতে চান?")) {
+    if (window.confirm("এই সেলস ডিলিট করতে চান? (স্টক ফেরত আসবে না)")) {
       await deleteDoc(doc(db, "shop_statements", id));
     }
   };
 
-  // PDF শেয়ার
+  // PDF ডাউনলোড
   const handleShare = () => {
     if (filteredSales.length === 0) return alert("ডেটা নেই!");
     const doc = new jsPDF();
@@ -86,6 +87,7 @@ function SalesContent() {
         Today's Total Sales: ৳{todayTotal}
       </div>
 
+      {/* সার্চ ও ফিল্টার */}
       <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-2">
         <div className="flex items-center gap-2 border rounded-lg px-2 py-1 flex-1">
           <Store size={16} className="text-gray-400" />
@@ -100,10 +102,11 @@ function SalesContent() {
         </div>
       </div>
 
+      {/* টেবিল */}
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <table className="w-full text-left text-xs md:text-sm">
-          <thead className="bg-gray-100 text-gray-600">
-            <tr><th className="px-3 py-3">Date</th><th className="px-3 py-3">Shop</th><th className="px-3 py-3">Details</th><th className="px-3 py-3 text-right">Amount</th><th className="px-3 py-3 text-center">Action</th></tr>
+          <thead className="bg-brand-navy text-white">
+            <tr><th className="px-3 py-3">Date</th><th className="px-3 py-3">Shop</th><th className="px-3 py-3">Product</th><th className="px-3 py-3 text-right">Amount</th><th className="px-3 py-3 text-center">Action</th></tr>
           </thead>
           <tbody>
             {filteredSales.length === 0 && <tr><td colSpan={5} className="text-center py-4 text-gray-500">কোনো লেনদেন পাওয়া যায়নি।</td></tr>}
@@ -123,6 +126,7 @@ function SalesContent() {
         </table>
       </div>
 
+      {/* এডিট মডাল */}
       {editingSale && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
@@ -142,11 +146,11 @@ function SalesContent() {
   );
 }
 
-// Next.js App Router-এর জন্য Suspense ওয়ালা র‍্যাপার (এটা না দিলে useSearchParams এরর দেয়)
+// ✅ Suspense দিয়ে র‍্যাপ করা হলো যাতে URL প্যারামিটার ঠিকমতো কাজ করে
 export default function SalesPage() {
   return (
     <Suspense fallback={<div className="text-center py-10">Loading...</div>}>
-      <SalesContent />
+      <SalesHistoryContent />
     </Suspense>
   );
 }
