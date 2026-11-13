@@ -1,30 +1,34 @@
 // @ts-nocheck
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, addDoc } from "firebase/firestore";
-import { useSearchParams, useRouter } from "next/navigation";
-import { Search, ArrowLeft, PlusCircle, Edit, Trash2, X, Phone, MapPin } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Search, ArrowLeft, PlusCircle, Edit, Trash2, Phone, MapPin } from "lucide-react";
 
-export default function BuyerStatementPage() {
+function BuyerStatementContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const initialShop = searchParams.get("shop") || "";
-
+  
+  // লোকাল স্টোরেজ থেকে দোকানের নাম নেওয়া
+  const [activeShop, setActiveShop] = useState("");
   const [buyers, setBuyers] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   
   const [showModal, setShowModal] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
-  const [formData, setFormData] = useState({ id: "", name: "", phone: "", address: "", shop: initialShop });
+  const [formData, setFormData] = useState({ id: "", name: "", phone: "", address: "", shop: "" });
 
   useEffect(() => {
+    const shop = localStorage.getItem("activeShop") || "";
+    setActiveShop(shop);
+    setFormData(prev => ({ ...prev, shop }));
+
     const unsub = onSnapshot(query(collection(db, "buyers")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setBuyers(data.filter(b => initialShop === "" || b.shop === initialShop));
+      setBuyers(shop ? data.filter(b => b.shop === shop) : data);
     });
     return () => unsub();
-  }, [initialShop]);
+  }, []);
 
   const filteredBuyers = buyers.filter(b => b.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -48,7 +52,7 @@ export default function BuyerStatementPage() {
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
       <div className="flex items-center gap-3 mb-4">
         <button onClick={() => router.back()} className="bg-gray-100 p-2 rounded-lg"><ArrowLeft size={20} /></button>
-        <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Buyers ({initialShop || "All"})</h2>
+        <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Buyers ({activeShop || "All"})</h2>
       </div>
 
       <div className="flex justify-between items-center mb-4 gap-2">
@@ -56,7 +60,7 @@ export default function BuyerStatementPage() {
           <Search size={16} className="text-gray-400" />
           <input type="text" placeholder="Search Buyer..." className="outline-none text-sm w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
-        <button onClick={() => { setIsEdit(false); setFormData({ id: "", name: "", phone: "", address: "", shop: initialShop }); setShowModal(true); }} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1">
+        <button onClick={() => { setIsEdit(false); setFormData({ id: "", name: "", phone: "", address: "", shop: activeShop }); setShowModal(true); }} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1">
           <PlusCircle size={16}/> Add Buyer
         </button>
       </div>
@@ -94,5 +98,13 @@ export default function BuyerStatementPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function BuyerStatementPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-10">Loading...</div>}>
+      <BuyerStatementContent />
+    </Suspense>
   );
 }
