@@ -2,7 +2,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { auth, db } from "./lib/firebase";
+import { auth, db } from "../lib/firebase"; // ✅ এখানে পাথ ঠিক করা হয়েছে
 import { doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
 import { Menu, X, LayoutDashboard, Box, Package, Upload, Store, FileText, Users, ShoppingCart, Database, LogOut } from "lucide-react";
@@ -14,7 +14,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const pathname = usePathname();
   const router = useRouter();
 
-  // ✅ হোম পেজে আছি কি না চেক করা
   const isHome = pathname === "/";
 
   useEffect(() => {
@@ -54,7 +53,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* সাইডবার */}
       {!isHome && (
         <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-brand-navy text-white transform ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"} md:relative md:translate-x-0 transition-transform duration-300`}>
           <div className="flex items-center justify-between p-4 border-b border-white/10">
@@ -79,7 +77,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </div>
       )}
 
-      {/* মেইন কন্টেন্ট */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <header className={`bg-white shadow-sm p-4 flex items-center justify-between ${isHome ? "hidden md:flex" : "flex"}`}>
           <button onClick={() => setIsSidebarOpen(true)} className={`${isHome ? "md:hidden" : ""}`}><Menu size={24} /></button>
