@@ -9,13 +9,11 @@ import { Store, ArrowRight } from "lucide-react";
 export default function HomePage() {
   const router = useRouter();
   const [shops, setShops] = useState<any[]>([]);
-  const [totalWarehouseValue, setTotalWarehouseValue] = useState(0);
 
   useEffect(() => {
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
       setShops(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
-    // (এখানে ওয়্যারহাউসের স্টক ভ্যালু বের করার লজিক বসবে, আপাতত ০ দেখাচ্ছে)
     return () => unsubShops();
   }, []);
 
@@ -34,7 +32,7 @@ export default function HomePage() {
             </div>
           </div>
           <p className="text-sm text-gray-500">Stock Value:</p>
-          <p className="font-bold text-brand-navy text-lg">৳{totalWarehouseValue}</p>
+          <p className="font-bold text-brand-navy text-lg">৳0</p>
         </div>
 
         {/* শপ কার্ডসমূহ */}
@@ -47,7 +45,6 @@ export default function HomePage() {
                 <p className="text-xs text-gray-500">Overview</p>
               </div>
             </div>
-            {/* এখানে পরবর্তীতে সেলস ও স্টক ভ্যালু লজিক বসবে */}
             <div className="flex justify-between items-center text-sm border-t pt-2 mt-2">
               <span className="text-gray-500">Sales</span>
               <span className="font-bold text-green-600">৳0</span>
