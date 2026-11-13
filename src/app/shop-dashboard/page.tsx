@@ -1,20 +1,24 @@
 // @ts-nocheck
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, updateDoc, addDoc, increment } from "firebase/firestore";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Store, ArrowLeft, ShoppingCart, Users, Box, Package, Wallet, PlusCircle } from "lucide-react";
 
-export default function ShopDashboardPage() {
+function ShopDashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const shopName = searchParams.get("shop") || "";
 
+  // লোকাল স্টোরেজে দোকানের নাম সেভ করা (যাতে অন্য পেজে কাজে লাগে)
+  if (typeof window !== "undefined" && shopName) {
+    localStorage.setItem("activeShop", shopName);
+  }
+
   const [shopInventories, setShopInventories] = useState<any[]>([]);
   const [shopStatements, setShopStatements] = useState<any[]>([]);
   
-  // সেল ও ডেলিভারি মডাল স্টেট (এখানে আমরা পরে কাজ করব)
   const [showLocalSale, setShowLocalSale] = useState(false);
   const [showPartySale, setShowPartySale] = useState(false);
 
@@ -63,7 +67,6 @@ export default function ShopDashboardPage() {
         <h3 className="text-2xl font-bold text-green-600">{totalStockValue.toLocaleString('en-IN')}</h3>
       </div>
 
-      {/* ✅ মেইন সেল বাটনসমূহ */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         <button onClick={() => setShowLocalSale(true)} className="bg-blue-600 text-white p-4 rounded-xl font-bold flex flex-col items-center justify-center gap-2 shadow-sm hover:bg-blue-700">
           <PlusCircle size={24} /> Add Local Sale
@@ -75,11 +78,19 @@ export default function ShopDashboardPage() {
 
       <h3 className="font-bold text-gray-700 mb-3">Quick Links</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div onClick={() => router.push(`/sales?shop=${shopName}`)} className="bg-white p-4 rounded-xl border cursor-pointer flex flex-col items-center gap-2 hover:shadow-md"><ShoppingCart size={24} className="text-green-600"/> <span className="text-sm font-bold">Sales History</span></div>
-        <div onClick={() => router.push(`/buyer-statement?shop=${shopName}`)} className="bg-white p-4 rounded-xl border cursor-pointer flex flex-col items-center gap-2 hover:shadow-md"><Users size={24} className="text-purple-600"/> <span className="text-sm font-bold">Buyers</span></div>
-        <div onClick={() => router.push(`/shop-inventory?shop=${shopName}`)} className="bg-white p-4 rounded-xl border cursor-pointer flex flex-col items-center gap-2 hover:shadow-md"><Package size={24} className="text-blue-600"/> <span className="text-sm font-bold">Stock</span></div>
-        <div onClick={() => router.push(`/shop-statement?shop=${shopName}`)} className="bg-white p-4 rounded-xl border cursor-pointer flex flex-col items-center gap-2 hover:shadow-md"><Wallet size={24} className="text-orange-600"/> <span className="text-sm font-bold">Expense</span></div>
+        <div onClick={() => router.push(`/sales`)} className="bg-white p-4 rounded-xl border cursor-pointer flex flex-col items-center gap-2 hover:shadow-md"><ShoppingCart size={24} className="text-green-600"/> <span className="text-sm font-bold">Sales History</span></div>
+        <div onClick={() => router.push(`/buyer-statement`)} className="bg-white p-4 rounded-xl border cursor-pointer flex flex-col items-center gap-2 hover:shadow-md"><Users size={24} className="text-purple-600"/> <span className="text-sm font-bold">Buyers</span></div>
+        <div onClick={() => router.push(`/shop-inventory`)} className="bg-white p-4 rounded-xl border cursor-pointer flex flex-col items-center gap-2 hover:shadow-md"><Package size={24} className="text-blue-600"/> <span className="text-sm font-bold">Stock</span></div>
+        <div onClick={() => router.push(`/shop-statement`)} className="bg-white p-4 rounded-xl border cursor-pointer flex flex-col items-center gap-2 hover:shadow-md"><Wallet size={24} className="text-orange-600"/> <span className="text-sm font-bold">Expense</span></div>
       </div>
     </div>
+  );
+}
+
+export default function ShopDashboardPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-10">Loading...</div>}>
+      <ShopDashboardContent />
+    </Suspense>
   );
 }
