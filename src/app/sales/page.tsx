@@ -1,32 +1,36 @@
 // @ts-nocheck
 "use client";
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, orderBy, addDoc, increment } from "firebase/firestore";
-import { useSearchParams, useRouter } from "next/navigation";
-import { Search, ArrowLeft, Download, Store, Edit, Trash2, PlusCircle, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Search, ArrowLeft, Download, Store, Edit, Trash2, PlusCircle } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
-function SalesHistoryContent() {
+export default function SalesHistoryPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const shopParam = searchParams.get("shop") || "All Shops";
+  
+  // ✅ LocalStorage থেকে দোকানের নাম নেওয়া হচ্ছে (URL এর ঝামেলা বাদ)
+  const [selectedShop, setSelectedShop] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("activeShop") || "All Shops";
+    }
+    return "All Shops";
+  });
 
   const [shops, setShops] = useState<any[]>([]);
   const [sales, setSales] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   
-  const [selectedShop, setSelectedShop] = useState(shopParam);
-
   // এডিট স্টেট
   const [editingSale, setEditingSale] = useState<any>(null);
   const [editData, setEditData] = useState({ title: "", amount: 0 });
 
-  // ✅ নতুন সেল স্টেট
+  // নতুন সেল স্টেট
   const [showAddSale, setShowAddSale] = useState(false);
-  const [newSaleData, setNewSaleData] = useState({ productId: "", qty: "", amount: "", shop: shopParam });
+  const [newSaleData, setNewSaleData] = useState({ productId: "", qty: "", amount: "", shop: "" });
   const [prodSearch, setProdSearch] = useState("");
 
   useEffect(() => {
@@ -46,6 +50,14 @@ function SalesHistoryContent() {
     return () => { unsubShops(); unsubSales(); unsubProducts(); };
   }, []);
 
+  // সিলেক্টেড শপ পরিবর্তন হলে LocalStorage আপডেট
+  const handleShopChange = (shopName: string) => {
+    setSelectedShop(shopName);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("activeShop", shopName);
+    }
+  };
+
   const filteredSales = sales
     .filter(s => selectedShop === "All Shops" || s.shop === selectedShop)
     .filter(s => (s.title || "").toLowerCase().includes(searchTerm.toLowerCase()));
@@ -53,22 +65,18 @@ function SalesHistoryContent() {
   const todayStr = new Date().toISOString().split("T")[0];
   const todayTotal = filteredSales.filter(s => s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
 
-  // ✅ নতুন সেল সেভ ফাংশন
   const handleSaveNewSale = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       const prod = products.find(p => p.id === newSaleData.productId);
       if (!prod || prod.stock < Number(newSaleData.qty)) return alert("স্টক পর্যাপ্ত নয়!");
       
-      // স্টক কমানো
       await updateDoc(doc(db, "shop_inventories", prod.id), { stock: increment(-Number(newSaleData.qty)) });
-      
-      // হিস্ট্রিতে যোগ করা
       await addDoc(collection(db, "shop_statements"), {
         shop: newSaleData.shop || selectedShop, type: "Sale", title: prod.productName, amount: Number(newSaleData.amount), date: new Date().toISOString()
       });
       
-      setShowAddSale(false); setNewSaleData({ productId: "", qty: "", amount: "", shop: shopParam }); setProdSearch("");
+      setShowAddSale(false); setNewSaleData({ productId: "", qty: "", amount: "", shop: "" }); setProdSearch("");
       alert("নতুন সেল সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
@@ -82,7 +90,7 @@ function SalesHistoryContent() {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm("এই সেলস ডিলিট করতে চান? (স্টক ফেরত আসবে না)")) {
+    if (window.confirm("এই সেলস ডিলিট করতে চান?")) {
       await deleteDoc(doc(db, "shop_statements", id));
     }
   };
@@ -121,7 +129,7 @@ function SalesHistoryContent() {
       <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-2">
         <div className="flex items-center gap-2 border rounded-lg px-2 py-1 flex-1">
           <Store size={16} className="text-gray-400" />
-          <select className="w-full bg-transparent outline-none text-sm font-medium" value={selectedShop} onChange={(e) => setSelectedShop(e.target.value)}>
+          <select className="w-full bg-transparent outline-none text-sm font-medium" value={selectedShop} onChange={(e) => handleShopChange(e.target.value)}>
             <option value="All Shops">All Shops</option>
             {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
           </select>
@@ -155,7 +163,7 @@ function SalesHistoryContent() {
         </table>
       </div>
 
-      {/* ✅ নতুন সেল করার মডাল */}
+      {/* নতুন সেল করার মডাল */}
       {showAddSale && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
@@ -206,13 +214,5 @@ function SalesHistoryContent() {
         </div>
       )}
     </div>
-  );
-}
-
-export default function SalesPage() {
-  return (
-    <Suspense fallback={<div className="text-center py-10">Loading...</div>}>
-      <SalesHistoryContent />
-    </Suspense>
   );
 }
