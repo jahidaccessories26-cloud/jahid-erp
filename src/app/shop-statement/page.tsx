@@ -1,28 +1,31 @@
 // @ts-nocheck
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, addDoc, orderBy } from "firebase/firestore";
-import { useSearchParams, useRouter } from "next/navigation";
-import { Search, ArrowLeft, PlusCircle, Edit, Trash2, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, PlusCircle, Edit, Trash2 } from "lucide-react";
 
-export default function ShopStatementPage() {
+function ShopStatementContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const initialShop = searchParams.get("shop") || "";
-
+  
+  const [activeShop, setActiveShop] = useState("");
   const [statements, setStatements] = useState<any[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
-  const [formData, setFormData] = useState({ id: "", type: "Sale", title: "", amount: "", shop: initialShop });
+  const [formData, setFormData] = useState({ id: "", type: "Sale", title: "", amount: "", shop: "" });
 
   useEffect(() => {
+    const shop = localStorage.getItem("activeShop") || "";
+    setActiveShop(shop);
+    setFormData(prev => ({ ...prev, shop }));
+
     const unsub = onSnapshot(query(collection(db, "shop_statements"), orderBy("date", "desc")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setStatements(data.filter(s => initialShop === "" || s.shop === initialShop));
+      setStatements(shop ? data.filter(s => s.shop === shop) : data);
     });
     return () => unsub();
-  }, [initialShop]);
+  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,10 +47,10 @@ export default function ShopStatementPage() {
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
       <div className="flex items-center gap-3 mb-4">
         <button onClick={() => router.back()} className="bg-gray-100 p-2 rounded-lg"><ArrowLeft size={20} /></button>
-        <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Shop Statement ({initialShop || "All"})</h2>
+        <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Statement ({activeShop || "All"})</h2>
       </div>
 
-      <button onClick={() => { setIsEdit(false); setFormData({ id: "", type: "Sale", title: "", amount: "", shop: initialShop }); setShowModal(true); }} className="bg-brand-navy text-white px-4 py-2 rounded-lg text-sm mb-4 flex items-center gap-2">
+      <button onClick={() => { setIsEdit(false); setFormData({ id: "", type: "Sale", title: "", amount: "", shop: activeShop }); setShowModal(true); }} className="bg-brand-navy text-white px-4 py-2 rounded-lg text-sm mb-4 flex items-center gap-2">
         <PlusCircle size={16}/> Add Transaction
       </button>
 
@@ -95,5 +98,13 @@ export default function ShopStatementPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ShopStatementPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-10">Loading...</div>}>
+      <ShopStatementContent />
+    </Suspense>
   );
 }
