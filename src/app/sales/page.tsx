@@ -2,29 +2,32 @@
 "use client";
 import { useState, useEffect, Suspense } from "react";
 import { db } from "../../lib/firebase";
-import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, orderBy, addDoc, increment } from "firebase/firestore";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Search, ArrowLeft, Download, Store, Edit, Trash2 } from "lucide-react";
+import { Search, ArrowLeft, Download, Store, Edit, Trash2, PlusCircle, X } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 function SalesHistoryContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  
-  // ✅ URL থেকে দোকানের নাম নেওয়া হচ্ছে
   const shopParam = searchParams.get("shop") || "All Shops";
 
   const [shops, setShops] = useState<any[]>([]);
   const [sales, setSales] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   
-  // ✅ ডিফল্টভাবে URL-এর দোকান সিলেক্ট থাকবে
   const [selectedShop, setSelectedShop] = useState(shopParam);
 
   // এডিট স্টেট
   const [editingSale, setEditingSale] = useState<any>(null);
   const [editData, setEditData] = useState({ title: "", amount: 0 });
+
+  // ✅ নতুন সেল স্টেট
+  const [showAddSale, setShowAddSale] = useState(false);
+  const [newSaleData, setNewSaleData] = useState({ productId: "", qty: "", amount: "", shop: shopParam });
+  const [prodSearch, setProdSearch] = useState("");
 
   useEffect(() => {
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
@@ -36,16 +39,39 @@ function SalesHistoryContent() {
       setSales(data.filter(s => s.type === 'Sale'));
     });
 
-    return () => { unsubShops(); unsubSales(); };
+    const unsubProducts = onSnapshot(query(collection(db, "shop_inventories")), (snapshot) => {
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    });
+
+    return () => { unsubShops(); unsubSales(); unsubProducts(); };
   }, []);
 
-  // ✅ ডেটা ফিল্টার (শুধু সিলেক্ট করা দোকানের ডেটা দেখাবে)
   const filteredSales = sales
     .filter(s => selectedShop === "All Shops" || s.shop === selectedShop)
     .filter(s => (s.title || "").toLowerCase().includes(searchTerm.toLowerCase()));
 
   const todayStr = new Date().toISOString().split("T")[0];
   const todayTotal = filteredSales.filter(s => s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+
+  // ✅ নতুন সেল সেভ ফাংশন
+  const handleSaveNewSale = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const prod = products.find(p => p.id === newSaleData.productId);
+      if (!prod || prod.stock < Number(newSaleData.qty)) return alert("স্টক পর্যাপ্ত নয়!");
+      
+      // স্টক কমানো
+      await updateDoc(doc(db, "shop_inventories", prod.id), { stock: increment(-Number(newSaleData.qty)) });
+      
+      // হিস্ট্রিতে যোগ করা
+      await addDoc(collection(db, "shop_statements"), {
+        shop: newSaleData.shop || selectedShop, type: "Sale", title: prod.productName, amount: Number(newSaleData.amount), date: new Date().toISOString()
+      });
+      
+      setShowAddSale(false); setNewSaleData({ productId: "", qty: "", amount: "", shop: shopParam }); setProdSearch("");
+      alert("নতুন সেল সেভ হয়েছে!");
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
+  };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,6 +96,11 @@ function SalesHistoryContent() {
     doc.save(`Sales_${Date.now()}.pdf`);
   };
 
+  const searchedProducts = products.filter(p => 
+    p.shop === (newSaleData.shop || selectedShop) && 
+    p.productName.toLowerCase().includes(prodSearch.toLowerCase())
+  ).slice(0, 5);
+
   return (
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
       <div className="flex items-center justify-between mb-4">
@@ -77,7 +108,10 @@ function SalesHistoryContent() {
           <button onClick={() => router.back()} className="bg-gray-100 p-2 rounded-lg"><ArrowLeft size={20} /></button>
           <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Sales History</h2>
         </div>
-        <button onClick={handleShare} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Download size={16}/> PDF</button>
+        <div className="flex gap-2">
+          <button onClick={() => { setNewSaleData({...newSaleData, shop: selectedShop === "All Shops" ? "" : selectedShop}); setShowAddSale(true); }} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><PlusCircle size={16}/> Add New Sale</button>
+          <button onClick={handleShare} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Download size={16}/> PDF</button>
+        </div>
       </div>
 
       <div className="bg-green-100 text-green-800 p-3 rounded-lg mb-4 font-bold border border-green-300">
@@ -120,6 +154,41 @@ function SalesHistoryContent() {
           </tbody>
         </table>
       </div>
+
+      {/* ✅ নতুন সেল করার মডাল */}
+      {showAddSale && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-4">Add New Sale</h3>
+            <form onSubmit={handleSaveNewSale} className="space-y-3">
+              <div>
+                <label className="text-xs">Shop</label>
+                <select className="w-full border p-2 rounded" value={newSaleData.shop} onChange={e => setNewSaleData({...newSaleData, shop: e.target.value})}>
+                  <option value="">-- Select Shop --</option>
+                  {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium">Search Product</label>
+                <input type="text" placeholder="Type name..." className="w-full border p-2 rounded mb-1" value={prodSearch} onChange={e => setProdSearch(e.target.value)} />
+                <div className="max-h-24 overflow-y-auto border rounded bg-gray-50">
+                  {searchedProducts.map(p => (
+                    <div key={p.id} onClick={() => { setNewSaleData({...newSaleData, productId: p.id, amount: p.costPrice.toString()}); setProdSearch(p.productName); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50">{p.productName} - Stock: {p.stock}</div>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={newSaleData.qty} onChange={e => setNewSaleData({...newSaleData, qty: e.target.value})} /></div>
+                <div><label className="text-xs">Total Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={newSaleData.amount} onChange={e => setNewSaleData({...newSaleData, amount: e.target.value})} /></div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowAddSale(false)} className="px-4 py-2 border rounded">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Save Sale</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {editingSale && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
