@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { auth, db } from "./lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
-import { Menu, X, LayoutDashboard, Box, Package, Upload, Store, FileText, Users, ShoppingCart, Database, LogOut, Truck, Settings } from "lucide-react";
+import { Menu, X, LayoutDashboard, Box, Package, Upload, Store, FileText, Users, ShoppingCart, Database, LogOut } from "lucide-react";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -54,34 +54,35 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
   return (
     <div className="flex h-screen bg-gray-50">
-      {/* সাইডবার (মোবাইলে লুকানো, ডেস্কটপে খোলা) */}
-      <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-brand-navy text-white transform ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"} md:relative md:translate-x-0 transition-transform duration-300`}>
-        <div className="flex items-center justify-between p-4 border-b border-white/10">
-          <h1 className="text-xl font-bold">Jahid Accessories</h1>
-          <button onClick={() => setIsSidebarOpen(false)} className="md:hidden"><X size={24} /></button>
-        </div>
-        
-        <div className="p-4 space-y-2 overflow-y-auto h-[calc(100vh-140px)]">
-          {/* ✅ হোম পেজে থাকলে সাইডবারের মেনু লুকানো থাকবে */}
-          {!isHome && navLinks.map((link) => {
-            const Icon = link.icon;
-            return (
-              <Link key={link.name} href={link.href} onClick={() => setIsSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition ${pathname === link.href ? "bg-white/20 font-bold" : ""}`}>
-                <Icon size={20} /> {link.name}
-              </Link>
-            );
-          })}
-        </div>
+      {/* সাইডবার */}
+      {!isHome && (
+        <div className={`fixed inset-y-0 left-0 z-50 w-64 bg-brand-navy text-white transform ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"} md:relative md:translate-x-0 transition-transform duration-300`}>
+          <div className="flex items-center justify-between p-4 border-b border-white/10">
+            <h1 className="text-xl font-bold">Jahid Accessories</h1>
+            <button onClick={() => setIsSidebarOpen(false)} className="md:hidden"><X size={24} /></button>
+          </div>
+          
+          <div className="p-4 space-y-2 overflow-y-auto h-[calc(100vh-140px)]">
+            {navLinks.map((link) => {
+              const Icon = link.icon;
+              return (
+                <Link key={link.name} href={link.href} onClick={() => setIsSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition ${pathname === link.href ? "bg-white/20 font-bold" : ""}`}>
+                  <Icon size={20} /> {link.name}
+                </Link>
+              );
+            })}
+          </div>
 
-        <div className="absolute bottom-0 w-full p-4 border-t border-white/10">
-          <button onClick={() => auth.signOut().then(() => router.push("/login"))} className="flex items-center gap-2 text-red-300 hover:text-white w-full p-2"><LogOut size={20} /> Logout</button>
+          <div className="absolute bottom-0 w-full p-4 border-t border-white/10">
+            <button onClick={() => auth.signOut().then(() => router.push("/login"))} className="flex items-center gap-2 text-red-300 hover:text-white w-full p-2"><LogOut size={20} /> Logout</button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* মেইন কন্টেন্ট */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        <header className="bg-white shadow-sm p-4 flex items-center justify-between">
-          <button onClick={() => setIsSidebarOpen(true)} className="md:hidden"><Menu size={24} /></button>
+        <header className={`bg-white shadow-sm p-4 flex items-center justify-between ${isHome ? "hidden md:flex" : "flex"}`}>
+          <button onClick={() => setIsSidebarOpen(true)} className={`${isHome ? "md:hidden" : ""}`}><Menu size={24} /></button>
           <div className="flex items-center gap-4">
             <span className="text-sm font-bold text-gray-700">{userName} ({userRole})</span>
           </div>
