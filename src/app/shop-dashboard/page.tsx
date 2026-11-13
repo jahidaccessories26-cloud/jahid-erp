@@ -1,12 +1,12 @@
 // @ts-nocheck
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Store, ArrowLeft, ShoppingCart, Users, Package, Wallet, PlusCircle } from "lucide-react";
 
-export default function ShopDashboardPage() {
+function ShopDashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const shopName = searchParams.get("shop") || "";
@@ -17,7 +17,7 @@ export default function ShopDashboardPage() {
   useEffect(() => {
     if (!shopName) return;
 
-    // ✅ দোকানের নাম লোকাল স্টোরেজে সেভ করা হচ্ছে, যাতে সেলস পেজে কাজে লাগে
+    // ✅ দোকানের নাম লোকাল স্টোরেজে সেভ করা হচ্ছে
     if (typeof window !== "undefined") {
       localStorage.setItem("activeShop", shopName);
     }
@@ -64,7 +64,7 @@ export default function ShopDashboardPage() {
         <h3 className="text-2xl font-bold text-green-600">{totalStockValue.toLocaleString('en-IN')}</h3>
       </div>
 
-      {/* ✅ সেল বাটনসমূহ (এখন লিংক করা হলো) */}
+      {/* ✅ সেল বাটনসমূহ */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         <button onClick={() => router.push(`/sales?shop=${shopName}`)} className="bg-blue-600 text-white p-4 rounded-xl font-bold flex flex-col items-center justify-center gap-2 shadow-sm hover:bg-blue-700 transition">
           <PlusCircle size={24} /> Add Local Sale
@@ -82,5 +82,14 @@ export default function ShopDashboardPage() {
         <div onClick={() => router.push(`/shop-statement?shop=${shopName}`)} className="bg-white p-4 rounded-xl border cursor-pointer flex flex-col items-center gap-2 hover:shadow-md"><Wallet size={24} className="text-orange-600"/> <span className="text-sm font-bold">Expense</span></div>
       </div>
     </div>
+  );
+}
+
+// ✅ Suspense দিয়ে র‍্যাপ করা হলো যাতে বিল্ড ফেইল না করে
+export default function ShopDashboardPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-20 font-bold text-brand-navy">Loading Dashboard...</div>}>
+      <ShopDashboardContent />
+    </Suspense>
   );
 }
