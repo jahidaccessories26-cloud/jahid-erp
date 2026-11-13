@@ -11,7 +11,7 @@ import autoTable from "jspdf-autotable";
 function SalesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const urlShop = searchParams.get("shop"); // URL থেকে দোকানের নাম
+  const urlShop = searchParams.get("shop"); // URL থেকে দোকানের নাম নিচ্ছে
 
   const [shops, setShops] = useState<any[]>([]);
   const [selectedShop, setSelectedShop] = useState("All Shops");
@@ -21,13 +21,14 @@ function SalesContent() {
   const [editingSale, setEditingSale] = useState<any>(null);
   const [editData, setEditData] = useState({ title: "", amount: 0 });
 
-  // ✅ মূল ফিক্স: URL থেকে দোকানের নাম আসলে অটোমেটিক সিলেক্ট হবে
+  // ✅ মূল ফিক্স: URL-এ দোকানের নাম থাকলে অটোমেটিক সেটা সিলেক্ট হবে
   useEffect(() => {
     if (urlShop) {
       setSelectedShop(urlShop);
     }
   }, [urlShop]);
 
+  // ডেটা লোড
   useEffect(() => {
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
       setShops(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
@@ -39,7 +40,7 @@ function SalesContent() {
     return () => { unsubShops(); unsubSales(); };
   }, []);
 
-  // সিলেক্ট করা দোকান অনুযায়ী ফিল্টার
+  // ফিল্টারিং লজিক
   const filteredSales = sales
     .filter(s => selectedShop === "All Shops" || s.shop === selectedShop)
     .filter(s => (s.title || "").toLowerCase().includes(searchTerm.toLowerCase()));
@@ -47,18 +48,21 @@ function SalesContent() {
   const todayStr = new Date().toISOString().split("T")[0];
   const todayTotal = filteredSales.filter(s => s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
 
+  // এডিট সেভ
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     await updateDoc(doc(db, "shop_statements", editingSale.id), { title: editData.title, amount: Number(editData.amount) });
     setEditingSale(null); alert("আপডেট হয়েছে!");
   };
 
+  // ডিলিট
   const handleDelete = async (id: string) => {
     if (window.confirm("এই সেলস ডিলিট করতে চান?")) {
       await deleteDoc(doc(db, "shop_statements", id));
     }
   };
 
+  // PDF শেয়ার
   const handleShare = () => {
     if (filteredSales.length === 0) return alert("ডেটা নেই!");
     const doc = new jsPDF();
@@ -138,7 +142,7 @@ function SalesContent() {
   );
 }
 
-// Next.js এর জন্য Suspense দিয়ে র‍্যাপ করা হলো
+// Next.js App Router-এর জন্য Suspense ওয়ালা র‍্যাপার (এটা না দিলে useSearchParams এরর দেয়)
 export default function SalesPage() {
   return (
     <Suspense fallback={<div className="text-center py-10">Loading...</div>}>
