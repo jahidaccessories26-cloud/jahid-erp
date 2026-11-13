@@ -2,103 +2,97 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
-import { collection, onSnapshot, query } from "firebase/firestore";
-import { ShoppingBag, User, CheckCircle, Clock } from "lucide-react";
+import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, addDoc } from "firebase/firestore";
+import { useSearchParams, useRouter } from "next/navigation";
+import { Search, ArrowLeft, PlusCircle, Edit, Trash2, X, Phone, MapPin } from "lucide-react";
 
 export default function BuyerStatementPage() {
-  const [orders, setOrders] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedBuyer, setSelectedBuyer] = useState("All");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialShop = searchParams.get("shop") || "";
+
+  const [buyers, setBuyers] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  
+  const [showModal, setShowModal] = useState(false);
+  const [isEdit, setIsEdit] = useState(false);
+  const [formData, setFormData] = useState({ id: "", name: "", phone: "", address: "", shop: initialShop });
 
   useEffect(() => {
-    const q = query(collection(db, "corporate_orders"));
-    const unsub = onSnapshot(q, (snapshot) => {
-      setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
+    const unsub = onSnapshot(query(collection(db, "buyers")), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setBuyers(data.filter(b => initialShop === "" || b.shop === initialShop));
     });
     return () => unsub();
-  }, []);
+  }, [initialShop]);
 
-  // বায়ার লিস্ট তৈরি
-  const buyers = Array.from(new Set(orders.map(o => o.buyerName)));
+  const filteredBuyers = buyers.filter(b => b.name.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  // বায়ার অনুযায়ী ডেটা ফিল্টার
-  const filteredOrders = selectedBuyer === "All" ? orders : orders.filter(o => o.buyerName === selectedBuyer);
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (isEdit) {
+        await updateDoc(doc(db, "buyers", formData.id), { name: formData.name, phone: formData.phone, address: formData.address });
+      } else {
+        await addDoc(collection(db, "buyers"), { ...formData, createdAt: new Date().toISOString() });
+      }
+      setShowModal(false); alert("সেভ হয়েছে!");
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
+  };
 
-  // সামারি ক্যালকুলেশন
-  const totalOrdered = filteredOrders.reduce((sum, o) => sum + o.totalOrdered, 0);
-  const totalDelivered = filteredOrders.reduce((sum, o) => sum + o.delivered, 0);
-  const totalPending = filteredOrders.reduce((sum, o) => sum + o.pending, 0);
+  const handleDelete = async (id: string) => {
+    if (window.confirm("বায়ার ডিলিট করতে চান?")) await deleteDoc(doc(db, "buyers", id));
+  };
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <h2 className="text-2xl font-bold text-brand-navy mb-4 flex items-center gap-2">
-        <User size={24} /> Buyer Statement
-      </h2>
-
-      <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
-        <span className="text-sm font-medium text-gray-600 px-2">Filter by Buyer:</span>
-        <select 
-          className="border p-2 rounded-lg text-sm font-medium text-brand-navy outline-none cursor-pointer w-full md:w-64"
-          value={selectedBuyer}
-          onChange={(e) => setSelectedBuyer(e.target.value)}
-        >
-          <option value="All">All Buyers</option>
-          {buyers.map(b => <option key={b} value={b}>{b}</option>)}
-        </select>
+    <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
+      <div className="flex items-center gap-3 mb-4">
+        <button onClick={() => router.back()} className="bg-gray-100 p-2 rounded-lg"><ArrowLeft size={20} /></button>
+        <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Buyers ({initialShop || "All"})</h2>
       </div>
 
-      {/* সামারি কার্ড */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-brand-navy">
-          <p className="text-gray-500 text-sm font-medium mb-1">Total Ordered</p>
-          <h3 className="text-2xl font-bold text-brand-navy">{totalOrdered} pcs</h3>
+      <div className="flex justify-between items-center mb-4 gap-2">
+        <div className="bg-white p-2 rounded-lg border flex items-center gap-2 w-full max-w-sm">
+          <Search size={16} className="text-gray-400" />
+          <input type="text" placeholder="Search Buyer..." className="outline-none text-sm w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
-        <div className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-green-500">
-          <p className="text-gray-500 text-sm font-medium mb-1">Total Delivered</p>
-          <h3 className="text-2xl font-bold text-green-600">{totalDelivered} pcs</h3>
-        </div>
-        <div className="bg-white p-5 rounded-xl shadow-sm border-t-4 border-red-500">
-          <p className="text-gray-500 text-sm font-medium mb-1">Total Pending</p>
-          <h3 className="text-2xl font-bold text-red-600">{totalPending} pcs</h3>
-        </div>
+        <button onClick={() => { setIsEdit(false); setFormData({ id: "", name: "", phone: "", address: "", shop: initialShop }); setShowModal(true); }} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1">
+          <PlusCircle size={16}/> Add Buyer
+        </button>
       </div>
 
-      {/* ডিটেইলস টেবিল */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 border-b bg-gray-50 flex items-center gap-2 font-bold text-gray-700">
-          <ShoppingBag size={20} /> Order History
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-gray-100 text-gray-600">
-              <tr>
-                <th className="px-4 py-3">Date</th>
-                <th className="px-4 py-3">Buyer</th>
-                <th className="px-4 py-3">Product</th>
-                <th className="px-4 py-3 text-center">Total</th>
-                <th className="px-4 py-3 text-center">Delivered</th>
-                <th className="px-4 py-3 text-center">Pending</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredOrders.length === 0 && <tr><td colSpan={6} className="text-center py-8 text-gray-500">কোনো অর্ডার পাওয়া যায়নি।</td></tr>}
-              {filteredOrders.map(order => (
-                <tr key={order.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-500">{new Date(order.date).toLocaleDateString()}</td>
-                  <td className="px-4 py-3 font-bold text-brand-navy">{order.buyerName}</td>
-                  <td className="px-4 py-3">
-                    {order.productName} <span className="text-xs text-gray-500">({order.size} / {order.color})</span>
-                  </td>
-                  <td className="px-4 py-3 text-center font-semibold">{order.totalOrdered}</td>
-                  <td className="px-4 py-3 text-center font-bold text-green-600">{order.delivered}</td>
-                  <td className="px-4 py-3 text-center font-bold text-red-600">{order.pending}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {filteredBuyers.map(buyer => (
+          <div key={buyer.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+            <div>
+              <p className="font-bold text-brand-navy">{buyer.name}</p>
+              <p className="text-xs text-gray-500 flex items-center gap-1 mt-1"><Phone size={12}/> {buyer.phone}</p>
+              <p className="text-xs text-gray-500 flex items-center gap-1"><MapPin size={12}/> {buyer.address}</p>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => { setIsEdit(true); setFormData(buyer); setShowModal(true); }} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit size={16}/></button>
+              <button onClick={() => handleDelete(buyer.id)} className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 size={16}/></button>
+            </div>
+          </div>
+        ))}
       </div>
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-4">{isEdit ? "Edit Buyer" : "Add Buyer"}</h3>
+            <form onSubmit={handleSave} className="space-y-3">
+              <div><label className="text-xs">Buyer Name</label><input required className="w-full border p-2 rounded" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /></div>
+              <div><label className="text-xs">Phone</label><input className="w-full border p-2 rounded" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} /></div>
+              <div><label className="text-xs">Address</label><input className="w-full border p-2 rounded" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} /></div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
