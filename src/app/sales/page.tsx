@@ -1,26 +1,32 @@
 // @ts-nocheck
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, orderBy } from "firebase/firestore";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Search, ArrowLeft, Download, Store, Edit, Trash2, X } from "lucide-react";
+import { Search, ArrowLeft, Download, Store, Edit, Trash2 } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
-export default function SalesPage() {
+function SalesContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialShop = searchParams.get("shop") || "All Shops";
+  const urlShop = searchParams.get("shop"); // URL থেকে দোকানের নাম
 
   const [shops, setShops] = useState<any[]>([]);
-  const [selectedShop, setSelectedShop] = useState(initialShop);
+  const [selectedShop, setSelectedShop] = useState("All Shops");
   const [sales, setSales] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // এডিট স্টেট
   const [editingSale, setEditingSale] = useState<any>(null);
   const [editData, setEditData] = useState({ title: "", amount: 0 });
+
+  // ✅ মূল ফিক্স: URL থেকে দোকানের নাম আসলে অটোমেটিক সিলেক্ট হবে
+  useEffect(() => {
+    if (urlShop) {
+      setSelectedShop(urlShop);
+    }
+  }, [urlShop]);
 
   useEffect(() => {
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
@@ -33,6 +39,7 @@ export default function SalesPage() {
     return () => { unsubShops(); unsubSales(); };
   }, []);
 
+  // সিলেক্ট করা দোকান অনুযায়ী ফিল্টার
   const filteredSales = sales
     .filter(s => selectedShop === "All Shops" || s.shop === selectedShop)
     .filter(s => (s.title || "").toLowerCase().includes(searchTerm.toLowerCase()));
@@ -40,14 +47,12 @@ export default function SalesPage() {
   const todayStr = new Date().toISOString().split("T")[0];
   const todayTotal = filteredSales.filter(s => s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
 
-  // এডিট সেভ
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     await updateDoc(doc(db, "shop_statements", editingSale.id), { title: editData.title, amount: Number(editData.amount) });
     setEditingSale(null); alert("আপডেট হয়েছে!");
   };
 
-  // ডিলিট (ডিলিট করলে স্টক ফেরত আনা লাগবে, তবে আপাতত শুধু সেলস ডিলিট হবে)
   const handleDelete = async (id: string) => {
     if (window.confirm("এই সেলস ডিলিট করতে চান?")) {
       await deleteDoc(doc(db, "shop_statements", id));
@@ -114,7 +119,6 @@ export default function SalesPage() {
         </table>
       </div>
 
-      {/* এডিট মডাল */}
       {editingSale && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
@@ -131,5 +135,14 @@ export default function SalesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+// Next.js এর জন্য Suspense দিয়ে র‍্যাপ করা হলো
+export default function SalesPage() {
+  return (
+    <Suspense fallback={<div className="text-center py-10">Loading...</div>}>
+      <SalesContent />
+    </Suspense>
   );
 }
