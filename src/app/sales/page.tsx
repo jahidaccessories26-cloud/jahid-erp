@@ -2,9 +2,9 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
-import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, orderBy } from "firebase/firestore";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Search, ArrowLeft, Download, Store } from "lucide-react";
+import { Search, ArrowLeft, Download, Store, Edit, Trash2, X } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -18,10 +18,13 @@ export default function SalesPage() {
   const [sales, setSales] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
 
+  // এডিট স্টেট
+  const [editingSale, setEditingSale] = useState<any>(null);
+  const [editData, setEditData] = useState({ title: "", amount: 0 });
+
   useEffect(() => {
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
-      setShops(data);
+      setShops(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
     });
     const unsubSales = onSnapshot(query(collection(db, "shop_statements"), orderBy("date", "desc")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -36,6 +39,20 @@ export default function SalesPage() {
 
   const todayStr = new Date().toISOString().split("T")[0];
   const todayTotal = filteredSales.filter(s => s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+
+  // এডিট সেভ
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await updateDoc(doc(db, "shop_statements", editingSale.id), { title: editData.title, amount: Number(editData.amount) });
+    setEditingSale(null); alert("আপডেট হয়েছে!");
+  };
+
+  // ডিলিট (ডিলিট করলে স্টক ফেরত আনা লাগবে, তবে আপাতত শুধু সেলস ডিলিট হবে)
+  const handleDelete = async (id: string) => {
+    if (window.confirm("এই সেলস ডিলিট করতে চান?")) {
+      await deleteDoc(doc(db, "shop_statements", id));
+    }
+  };
 
   const handleShare = () => {
     if (filteredSales.length === 0) return alert("ডেটা নেই!");
@@ -77,21 +94,42 @@ export default function SalesPage() {
       <div className="bg-white rounded-xl shadow-sm overflow-hidden">
         <table className="w-full text-left text-xs md:text-sm">
           <thead className="bg-gray-100 text-gray-600">
-            <tr><th className="px-3 py-3">Date</th><th className="px-3 py-3">Shop</th><th className="px-3 py-3">Details</th><th className="px-3 py-3 text-right">Amount</th></tr>
+            <tr><th className="px-3 py-3">Date</th><th className="px-3 py-3">Shop</th><th className="px-3 py-3">Details</th><th className="px-3 py-3 text-right">Amount</th><th className="px-3 py-3 text-center">Action</th></tr>
           </thead>
           <tbody>
-            {filteredSales.length === 0 && <tr><td colSpan={4} className="text-center py-4 text-gray-500">কোনো লেনদেন পাওয়া যায়নি।</td></tr>}
+            {filteredSales.length === 0 && <tr><td colSpan={5} className="text-center py-4 text-gray-500">কোনো লেনদেন পাওয়া যায়নি।</td></tr>}
             {filteredSales.map(sale => (
               <tr key={sale.id} className="border-b last:border-0 hover:bg-gray-50">
                 <td className="px-3 py-3">{new Date(sale.date).toLocaleDateString()}</td>
                 <td className="px-3 py-3 font-medium text-brand-navy">{sale.shop}</td>
                 <td className="px-3 py-3">{sale.title}</td>
                 <td className="px-3 py-3 text-right font-bold text-green-600">৳{sale.amount}</td>
+                <td className="px-3 py-3 flex justify-center gap-2">
+                  <button onClick={() => { setEditingSale(sale); setEditData({ title: sale.title, amount: sale.amount }); }} className="p-1 text-blue-600 bg-blue-50 rounded"><Edit size={14}/></button>
+                  <button onClick={() => handleDelete(sale.id)} className="p-1 text-red-600 bg-red-50 rounded"><Trash2 size={14}/></button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* এডিট মডাল */}
+      {editingSale && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-4">Edit Sale</h3>
+            <form onSubmit={handleUpdate} className="space-y-3">
+              <div><label className="text-xs">Details</label><input required className="w-full border p-2 rounded" value={editData.title} onChange={e => setEditData({...editData, title: e.target.value})} /></div>
+              <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={editData.amount} onChange={e => setEditData({...editData, amount: Number(e.target.value)})} /></div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setEditingSale(null)} className="px-4 py-2 border rounded">Cancel</button>
+                <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
