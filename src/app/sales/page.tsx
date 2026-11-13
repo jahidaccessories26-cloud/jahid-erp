@@ -2,29 +2,27 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
-import { collection, onSnapshot, query, doc, updateDoc, increment, addDoc, orderBy } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, increment, addDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, PlusCircle, Store, Package } from "lucide-react";
 
 export default function SalesPage() {
   const router = useRouter();
   
-  // ✅ LocalStorage থেকে দোকানের নাম নেওয়া হচ্ছে
-  const [shopName, setShopName] = useState("");
-
-  const [products, setProducts] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [prodSearch, setProdSearch] = useState("");
   
-  // সেল স্টেট
-  const [saleData, setSaleData] = useState({ shop: "", productId: "", qty: "", amount: "" });
+  // ✅ লোকাল স্টোরেজ থেকে দোকানের নাম নেওয়া হচ্ছে
+  const [saleData, setSaleData] = useState(() => {
+    let activeShop = "";
+    if (typeof window !== "undefined") {
+      activeShop = localStorage.getItem("activeShop") || "";
+    }
+    return { shop: activeShop, productId: "", qty: "", amount: "" };
+  });
 
   useEffect(() => {
-    // লোকাল স্টোরেজ থেকে দোকানের নাম নেওয়া
-    const activeShop = localStorage.getItem("activeShop") || "";
-    setShopName(activeShop);
-    setSaleData(prev => ({ ...prev, shop: activeShop }));
-
     const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
       setShops(snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name })));
     });
@@ -50,14 +48,14 @@ export default function SalesPage() {
         shop: saleData.shop, type: "Sale", title: prod.productName, amount: Number(saleData.amount), date: new Date().toISOString()
       });
       
-      setSaleData({ shop: shopName, productId: "", qty: "", amount: "" }); 
+      setSaleData({ shop: saleData.shop, productId: "", qty: "", amount: "" }); 
       setProdSearch("");
       alert("নতুন সেল সেভ হয়েছে!");
-      router.back(); // সেভ হলে আগের পেজে ফিরে যাবে
+      router.back(); 
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // প্রোডাক্ট সার্চ
+  // প্রোডাক্ট সার্চ (শুধু সিলেক্ট করা দোকানের)
   const searchedProducts = products.filter(p => 
     (p.shop === saleData.shop) && 
     p.productName.toLowerCase().includes(prodSearch.toLowerCase())
@@ -86,7 +84,12 @@ export default function SalesPage() {
                 onChange={e => setSaleData({...saleData, shop: e.target.value})}
               >
                 <option value="">-- Select Shop --</option>
-                {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                {/* ✅ যদি লোকাল স্টোরেজে দোকান থাকে, তবে শুধু সেই দোকানটাই অপশন হিসেবে দেখাবে */}
+                {saleData.shop ? (
+                  <option value={saleData.shop}>{saleData.shop}</option>
+                ) : (
+                  shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)
+                )}
               </select>
             </div>
           </div>
@@ -103,7 +106,6 @@ export default function SalesPage() {
                 onChange={e => setProdSearch(e.target.value)} 
               />
             </div>
-            {/* সার্চ রেজাল্ট */}
             {prodSearch && (
               <div className="mt-2 border rounded-lg overflow-hidden bg-white shadow-sm">
                 {searchedProducts.length === 0 ? (
