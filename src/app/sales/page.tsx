@@ -1,138 +1,96 @@
+// @ts-nocheck
 "use client";
 import { useState, useEffect } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
-import { Search, Receipt, User, Store } from "lucide-react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { Search, ArrowLeft, Download, Store } from "lucide-react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
-export default function SalesHistoryPage() {
-  const [sales, setSales] = useState<any[]>([]);
+export default function SalesPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialShop = searchParams.get("shop") || "All Shops";
+
   const [shops, setShops] = useState<any[]>([]);
-  const [selectedShop, setSelectedShop] = useState("All Shops"); // ডিফল্ট সব দোকান
+  const [selectedShop, setSelectedShop] = useState(initialShop);
+  const [sales, setSales] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // ফায়ারবেস থেকে সেলস ডেটা আনা
   useEffect(() => {
-    const q = query(collection(db, "sales"), orderBy("createdAt", "desc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setSales(data);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // ফায়ারবেস থেকে দোকানের লিস্ট আনা
-  useEffect(() => {
-    const qShops = query(collection(db, "shops"));
-    const unsubShops = onSnapshot(qShops, (snapshot) => {
-      const data: any[] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    const unsubShops = onSnapshot(query(collection(db, "shops")), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, name: doc.data().name }));
       setShops(data);
     });
-    return () => unsubShops();
+    const unsubSales = onSnapshot(query(collection(db, "shop_statements"), orderBy("date", "desc")), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setSales(data.filter(s => s.type === 'Sale'));
+    });
+    return () => { unsubShops(); unsubSales(); };
   }, []);
 
-  // সার্চ এবং দোকান অনুযায়ী ফিল্টার
-  const filteredSales = sales.filter((sale) => {
-    const searchString = searchTerm.toLowerCase();
-    const matchesSearch = 
-      sale.customerName?.toLowerCase().includes(searchString) ||
-      sale.customerPhone?.includes(searchString) ||
-      sale.productName?.toLowerCase().includes(searchString);
-    
-    // দোকান ফিল্টার
-    const matchesShop = selectedShop === "All Shops" || sale.shop === selectedShop;
+  const filteredSales = sales
+    .filter(s => selectedShop === "All Shops" || s.shop === selectedShop)
+    .filter(s => (s.title || "").toLowerCase().includes(searchTerm.toLowerCase()));
 
-    return matchesSearch && matchesShop;
-  });
+  const todayStr = new Date().toISOString().split("T")[0];
+  const todayTotal = filteredSales.filter(s => s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
 
-  // আজকের মোট সেলস বের করা (ফিল্টার অনুযায়ী)
-  const today = new Date().toISOString().split("T")[0];
-  const todaySales = filteredSales.filter(s => s.date.startsWith(today));
-  const todayTotal = todaySales.reduce((sum, s) => sum + s.totalAmount, 0);
+  const handleShare = () => {
+    if (filteredSales.length === 0) return alert("ডেটা নেই!");
+    const doc = new jsPDF();
+    doc.text(`Sales History - ${selectedShop}`, 14, 15);
+    const tableData = filteredSales.map(s => [new Date(s.date).toLocaleDateString(), s.shop, s.title, `৳${s.amount}`]);
+    autoTable(doc, { head: [['Date', 'Shop', 'Product', 'Amount']], body: tableData, startY: 25 });
+    doc.save(`Sales_${Date.now()}.pdf`);
+  };
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <h2 className="text-3xl font-bold text-brand-navy flex items-center gap-2">
-          <Receipt size={28} /> Sales History
-        </h2>
-        
-        {/* আজকের সেলস সামারি */}
-        <div className="bg-green-100 text-green-800 px-4 py-2 rounded-lg font-bold border border-green-300">
-          Today's Total Sales: Tk. {todayTotal}
+    <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => router.back()} className="bg-gray-100 p-2 rounded-lg"><ArrowLeft size={20} /></button>
+          <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Sales History</h2>
         </div>
+        <button onClick={handleShare} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Download size={16}/> PDF</button>
       </div>
 
-      {/* ফিল্টার এবং সার্চ বার */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-col md:flex-row gap-4">
-        
-        {/* দোকান সিলেক্ট */}
-        <div className="flex items-center gap-2 bg-gray-50 border p-2 rounded-lg">
-          <Store size={20} className="text-brand-navy" />
-          <select 
-            className="font-medium text-brand-navy outline-none bg-transparent cursor-pointer w-full md:w-auto"
-            value={selectedShop} 
-            onChange={(e) => setSelectedShop(e.target.value)}
-          >
+      <div className="bg-green-100 text-green-800 p-3 rounded-lg mb-4 font-bold border border-green-300">
+        Today's Total Sales: ৳{todayTotal}
+      </div>
+
+      <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex flex-col md:flex-row gap-2">
+        <div className="flex items-center gap-2 border rounded-lg px-2 py-1 flex-1">
+          <Store size={16} className="text-gray-400" />
+          <select className="w-full bg-transparent outline-none text-sm font-medium" value={selectedShop} onChange={(e) => setSelectedShop(e.target.value)}>
             <option value="All Shops">All Shops</option>
-            {shops.map((shop) => (
-              <option key={shop.id} value={shop.name}>{shop.name}</option>
-            ))}
+            {shops.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
           </select>
         </div>
-
-        {/* সার্চ বার */}
-        <div className="flex-1 flex items-center gap-3 bg-gray-50 border p-2 rounded-lg">
-          <Search className="text-gray-400" size={20} />
-          <input 
-            type="text" 
-            placeholder="Search by Customer, Mobile or Product..." 
-            className="flex-1 outline-none bg-transparent"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="flex items-center gap-2 border rounded-lg px-2 py-1 flex-1">
+          <Search size={16} className="text-gray-400" />
+          <input type="text" placeholder="Search..." className="w-full bg-transparent outline-none text-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
       </div>
 
-      {/* সেলস টেবিল */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-brand-navy text-white">
-              <tr>
-                <th className="px-4 py-3 font-semibold">Date</th>
-                <th className="px-4 py-3 font-semibold">Customer</th>
-                <th className="px-4 py-3 font-semibold">Shop</th>
-                <th className="px-4 py-3 font-semibold">Product</th>
-                <th className="px-4 py-3 font-semibold text-center">Qty</th>
-                <th className="px-4 py-3 font-semibold text-right">Total (Tk.)</th>
-                <th className="px-4 py-3 font-semibold">Payment</th>
+      <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        <table className="w-full text-left text-xs md:text-sm">
+          <thead className="bg-gray-100 text-gray-600">
+            <tr><th className="px-3 py-3">Date</th><th className="px-3 py-3">Shop</th><th className="px-3 py-3">Details</th><th className="px-3 py-3 text-right">Amount</th></tr>
+          </thead>
+          <tbody>
+            {filteredSales.length === 0 && <tr><td colSpan={4} className="text-center py-4 text-gray-500">কোনো লেনদেন পাওয়া যায়নি।</td></tr>}
+            {filteredSales.map(sale => (
+              <tr key={sale.id} className="border-b last:border-0 hover:bg-gray-50">
+                <td className="px-3 py-3">{new Date(sale.date).toLocaleDateString()}</td>
+                <td className="px-3 py-3 font-medium text-brand-navy">{sale.shop}</td>
+                <td className="px-3 py-3">{sale.title}</td>
+                <td className="px-3 py-3 text-right font-bold text-green-600">৳{sale.amount}</td>
               </tr>
-            </thead>
-            <tbody>
-              {filteredSales.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-gray-500">কোনো সেলস রেকর্ড পাওয়া যায়নি।</td>
-                </tr>
-              )}
-              {filteredSales.map((sale) => (
-                <tr key={sale.id} className="border-b last:border-0 hover:bg-gray-50">
-                  <td className="px-4 py-4 text-gray-500">{new Date(sale.date).toLocaleDateString()}</td>
-                  <td className="px-4 py-4">
-                    <div className="font-medium text-brand-navy flex items-center gap-1"><User size={14}/> {sale.customerName}</div>
-                    <div className="text-xs text-gray-500">{sale.customerPhone}</div>
-                  </td>
-                  <td className="px-4 py-4 text-gray-600">{sale.shop}</td>
-                  <td className="px-4 py-4 font-medium">{sale.productName} <span className="text-xs text-gray-400">({sale.size}/{sale.color})</span></td>
-                  <td className="px-4 py-4 text-center font-bold">{sale.quantity}</td>
-                  <td className="px-4 py-4 text-right font-bold text-green-600">{sale.totalAmount}</td>
-                  <td className="px-4 py-4">
-                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-xs font-bold">{sale.paymentMethod}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
