@@ -19,12 +19,13 @@ function SalesHistoryContent() {
   
   // এডিট স্টেট
   const [editingSale, setEditingSale] = useState<any>(null);
-  const [editData, setEditData] = useState({ title: "", qty: 0, price: 0, amount: 0 });
+  const [editData, setEditData] = useState({ title: "", qty: 0, price: 0, amount: 0, productId: "", oldQty: 0 });
 
   // নতুন সেল স্টেট
   const [showAddSale, setShowAddSale] = useState(false);
   const [newSaleData, setNewSaleData] = useState({ productId: "", productName: "", qty: "", salePrice: "", amount: "" });
   const [prodSearch, setProdSearch] = useState("");
+  const [showList, setShowList] = useState(false);
 
   useEffect(() => {
     if (!shopName) return;
@@ -61,31 +62,65 @@ function SalesHistoryContent() {
   const handleSaveNewSale = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      if (!newSaleData.productId) return alert("আগে লিস্ট থেকে প্রোডাক্ট সিলেক্ট করুন!");
       const prod = products.find(p => p.id === newSaleData.productId);
       if (!prod || prod.stock < Number(newSaleData.qty)) return alert("স্টক পর্যাপ্ত নয়!");
       
       await updateDoc(doc(db, "shop_inventories", prod.id), { stock: increment(-Number(newSaleData.qty)) });
       await addDoc(collection(db, "shop_statements"), {
-        shop: shopName, type: "Sale", title: prod.productName, qty: Number(newSaleData.qty), price: Number(newSaleData.salePrice), amount: Number(newSaleData.amount), date: new Date().toISOString()
+        shop: shopName, type: "Sale", productId: prod.id, title: prod.productName, qty: Number(newSaleData.qty), price: Number(newSaleData.salePrice), amount: Number(newSaleData.amount), date: new Date().toISOString()
       });
       
-      setShowAddSale(false); setNewSaleData({ productId: "", productName: "", qty: "", salePrice: "", amount: "" }); setProdSearch("");
+      setShowAddSale(false); setNewSaleData({ productId: "", productName: "", qty: "", salePrice: "", amount: "" }); setProdSearch(""); setShowList(false);
       alert("নতুন সেল সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
+  };
+
+  // সেলের প্রোডাক্ট খুঁজে বের করা (পুরনো সেলে productId না থাকলে নাম দিয়ে মিলানো হয়)
+  const findProductId = (sale: any) => {
+    if (sale.productId) return sale.productId;
+    const matches = products.filter(p => p.productName === sale.title);
+    return matches.length === 1 ? matches[0].id : "";
+  };
+
+  const openEdit = (sale: any) => {
+    setEditingSale(sale);
+    setEditData({ title: sale.title, qty: sale.qty, price: sale.price, amount: sale.amount, productId: findProductId(sale), oldQty: Number(sale.qty || 0) });
   };
 
   const handleUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await updateDoc(doc(db, "shop_statements", editingSale.id), { title: editData.title, qty: Number(editData.qty), price: Number(editData.price), amount: Number(editData.amount) });
+      const diff = Number(editData.qty) - Number(editData.oldQty);
+      if (diff !== 0) {
+        if (editData.productId) {
+          const prod = products.find(p => p.id === editData.productId);
+          if (diff > 0 && (!prod || prod.stock < diff)) return alert("স্টক পর্যাপ্ত নয়!");
+          await updateDoc(doc(db, "shop_inventories", editData.productId), { stock: increment(-diff) });
+        } else {
+          if (!window.confirm("এই পুরনো সেলের প্রোডাক্ট খুঁজে পাওয়া যায়নি, তাই স্টক বদলাবে না। তবুও আপডেট করবেন?")) return;
+        }
+      }
+      await updateDoc(doc(db, "shop_statements", editingSale.id), {
+        title: editData.title, qty: Number(editData.qty), price: Number(editData.price), amount: Number(editData.amount),
+        ...(editData.productId ? { productId: editData.productId } : {})
+      });
       setEditingSale(null); alert("আপডেট হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm("এই সেলস ডিলিট করতে চান?")) {
-      await deleteDoc(doc(db, "shop_statements", id));
-    }
+  const handleDelete = async (sale: any) => {
+    const pid = findProductId(sale);
+    const msg = pid
+      ? "এই সেল ডিলিট করলে স্টক ফেরত আসবে। নিশ্চিত?"
+      : "এই পুরনো সেলের প্রোডাক্ট খুঁজে পাওয়া যায়নি, তাই স্টক ফেরত আসবে না। তবুও ডিলিট করবেন?";
+    if (!window.confirm(msg)) return;
+    try {
+      if (pid) {
+        await updateDoc(doc(db, "shop_inventories", pid), { stock: increment(Number(sale.qty || 0)) });
+      }
+      await deleteDoc(doc(db, "shop_statements", sale.id));
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
   const handleShare = () => {
@@ -142,8 +177,8 @@ function SalesHistoryContent() {
               <div className="flex justify-between items-center text-xs">
                 <span className="text-gray-500">Qty: {sale.qty || "-"} | Price: ৳{sale.price || "-"}</span>
                 <div className="flex gap-2">
-                  <button onClick={() => { setEditingSale(sale); setEditData({ title: sale.title, qty: sale.qty, price: sale.price, amount: sale.amount }); }} className="p-1.5 text-blue-600 bg-blue-50 rounded"><Edit size={14}/></button>
-                  <button onClick={() => handleDelete(sale.id)} className="p-1.5 text-red-600 bg-red-50 rounded"><Trash2 size={14}/></button>
+                  <button onClick={() => openEdit(sale)} className="p-1.5 text-blue-600 bg-blue-50 rounded"><Edit size={14}/></button>
+                  <button onClick={() => handleDelete(sale)} className="p-1.5 text-red-600 bg-red-50 rounded"><Trash2 size={14}/></button>
                 </div>
               </div>
             </div>
@@ -165,8 +200,8 @@ function SalesHistoryContent() {
                 <td className="px-3 py-3 text-right">৳{sale.price || "-"}</td>
                 <td className="px-3 py-3 text-right font-bold text-green-600">৳{sale.amount}</td>
                 <td className="px-3 py-3 flex justify-center gap-2">
-                  <button onClick={() => { setEditingSale(sale); setEditData({ title: sale.title, qty: sale.qty, price: sale.price, amount: sale.amount }); }} className="p-1 text-blue-600 bg-blue-50 rounded"><Edit size={14}/></button>
-                  <button onClick={() => handleDelete(sale.id)} className="p-1 text-red-600 bg-red-50 rounded"><Trash2 size={14}/></button>
+                  <button onClick={() => openEdit(sale)} className="p-1 text-blue-600 bg-blue-50 rounded"><Edit size={14}/></button>
+                  <button onClick={() => handleDelete(sale)} className="p-1 text-red-600 bg-red-50 rounded"><Trash2 size={14}/></button>
                 </td>
               </tr>
             ))}
@@ -186,11 +221,11 @@ function SalesHistoryContent() {
               </div>
               <div className="relative">
                 <label className="text-xs font-bold text-gray-700">Search Product</label>
-                <input type="text" placeholder="Type name..." className="w-full border p-2 rounded mb-1" value={prodSearch} onChange={e => setProdSearch(e.target.value)} />
-                {prodSearch && (
+                <input type="text" placeholder="Type name..." className="w-full border p-2 rounded mb-1" value={prodSearch} onChange={e => { setProdSearch(e.target.value); setShowList(true); setNewSaleData({...newSaleData, productId: "", productName: ""}); }} />
+                {showList && prodSearch && (
                   <div className="absolute w-full max-h-32 overflow-y-auto border rounded bg-white shadow-lg z-10">
                     {searchedProducts.map(p => (
-                      <div key={p.id} onClick={() => { setNewSaleData({...newSaleData, productId: p.id, productName: p.productName, salePrice: p.costPrice.toString()}); setProdSearch(p.productName); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50 flex justify-between">
+                      <div key={p.id} onClick={() => { setNewSaleData({...newSaleData, productId: p.id, productName: p.productName, salePrice: p.costPrice.toString()}); setProdSearch(p.productName); setShowList(false); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50 flex justify-between">
                         <span>{p.productName}</span>
                         <span className="text-gray-500">Stock: {p.stock}</span>
                       </div>
@@ -216,7 +251,7 @@ function SalesHistoryContent() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setShowAddSale(false)} className="px-4 py-2 border rounded">Cancel</button>
+                <button type="button" onClick={() => { setShowAddSale(false); setShowList(false); }} className="px-4 py-2 border rounded">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Save Sale</button>
               </div>
             </form>
@@ -230,10 +265,10 @@ function SalesHistoryContent() {
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
             <h3 className="text-lg font-bold mb-4">Edit Sale</h3>
             <form onSubmit={handleUpdate} className="space-y-3">
-              <div><label className="text-xs">Product</label><input required className="w-full border p-2 rounded" value={editData.title} onChange={e => setEditData({...editData, title: e.target.value})} /></div>
+              <div><label className="text-xs">Product</label><input readOnly className="w-full border p-2 rounded bg-gray-100 text-gray-600" value={editData.title} /></div>
               <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={editData.qty} onChange={e => setEditData({...editData, qty: Number(e.target.value)})} /></div>
-                <div><label className="text-xs">Sale Price</label><input required type="number" className="w-full border p-2 rounded" value={editData.price} onChange={e => setEditData({...editData, price: Number(e.target.value)})} /></div>
+                <div><label className="text-xs">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={editData.qty} onChange={e => setEditData({...editData, qty: Number(e.target.value), amount: Number(e.target.value) * Number(editData.price || 0)})} /></div>
+                <div><label className="text-xs">Sale Price</label><input required type="number" className="w-full border p-2 rounded" value={editData.price} onChange={e => setEditData({...editData, price: Number(e.target.value), amount: Number(editData.qty || 0) * Number(e.target.value)})} /></div>
               </div>
               <div><label className="text-xs">Total Amount</label><input required type="number" className="w-full border p-2 rounded font-bold text-green-600" value={editData.amount} onChange={e => setEditData({...editData, amount: Number(e.target.value)})} /></div>
               <div className="flex justify-end gap-2 pt-2">
