@@ -134,35 +134,57 @@ function BuyerStatementContent() {
 
   const handleShareStatement = async () => {
     if (buyerOrders.length === 0) return alert("ডেটা নেই!");
-    const doc = new jsPDF();
-    doc.text(`Statement - ${selectedBuyer.name}`, 14, 15);
-    doc.text(`Company: ${selectedBuyer.companyName || "N/A"}`, 14, 22);
-    
-    let totalBill = buyerOrders.filter(o => o.type === "Delivery").reduce((sum, o) => sum + Number(o.amount || 0), 0);
-    let totalPaid = buyerOrders.filter(o => o.type === "Payment").reduce((sum, o) => sum + Number(o.amount || 0), 0);
-    
-    doc.text(`Total Bill: BDT ${totalBill}`, 14, 28);
-    doc.text(`Total Paid: BDT ${totalPaid}`, 14, 34);
-    doc.text(`Due: BDT ${totalBill - totalPaid}`, 14, 40);
+    const pdf = new jsPDF();
 
-    const tableData = buyerOrders.map(o => [
-      new Date(o.date).toLocaleDateString(), 
-      o.type, 
-      o.type === "Delivery" ? `${o.orderNo} - ${o.productName} (${o.qty} pcs)` : `Ref: ${o.orderNoRef || "-"} | ${o.details || ""}`, 
-      o.amount
-    ]);
+    const totalBill = buyerOrders.filter(o => o.type === "Delivery").reduce((sum, o) => sum + Number(o.amount || 0), 0);
+    const totalPaid = buyerOrders.filter(o => o.type === "Payment").reduce((sum, o) => sum + Number(o.amount || 0), 0);
 
-    autoTable(doc, { head: [['Date', 'Type', 'Details', 'Amount']], body: tableData, startY: 46 });
+    // হেডার: গার্মেন্টস (কোম্পানি) -> বায়ার -> হিসাব
+    pdf.setFontSize(18);
+    pdf.text(`${selectedBuyer.companyName || "N/A"}`, 14, 16);
+    pdf.setFontSize(12);
+    pdf.text(`Buyer: ${selectedBuyer.name}`, 14, 24);
+    pdf.setFontSize(10);
+    pdf.text(`Total Bill: BDT ${totalBill}   |   Total Paid: BDT ${totalPaid}   |   Due: BDT ${totalBill - totalPaid}`, 14, 31);
 
-    const pdfBlob = doc.output('blob'); 
-    const file = new File([pdfBlob], `Statement_${selectedBuyer.name}.pdf`, { type: 'application/pdf' });
-    
-    if (navigator.canShare && navigator.canShare({ files: [file] })) { 
-      try { await navigator.share({ files: [file], title: 'Buyer Statement' }); } catch (e) {} 
-    } else { doc.save(`Statement_${selectedBuyer.name}.pdf`); }
+    // পুরনো থেকে নতুন ক্রমে সাজানো
+    const sorted = [...buyerOrders].sort((a, b) => new Date(a.date) - new Date(b.date));
+    const tableData = sorted.map(o => {
+      const dateStr = new Date(o.date).toLocaleDateString("en-GB");
+      if (o.type === "Delivery") {
+        return [dateStr, o.orderNo || "-", o.styleNo || "-", o.productName || "", o.qty || "", o.price || "", o.amount || 0, ""];
+      }
+      return [dateStr, o.orderNoRef || "-", "-", `Payment${o.details ? " - " + o.details : ""}`, "", "", "", o.amount || 0];
+    });
+
+    autoTable(pdf, {
+      head: [['Date', 'Order No', 'Style', 'Details', 'Qty', 'Rate', 'Bill', 'Paid']],
+      body: tableData,
+      foot: [['', '', '', 'Total', '', '', totalBill, totalPaid]],
+      startY: 36,
+      styles: { fontSize: 8 },
+      columnStyles: { 4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' } },
+    });
+
+    const fileName = `Statement_${selectedBuyer.companyName || ""}_${selectedBuyer.name}.pdf`;
+    const pdfBlob = pdf.output('blob');
+    const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'Buyer Statement' }); } catch (e) {}
+    } else { pdf.save(fileName); }
   };
 
   const searchedProducts = products.filter(p => p.productName.toLowerCase().includes(prodSearch.toLowerCase())).slice(0, 5);
+
+  // এই বায়ারের আগের অর্ডার ও স্টাইলের তালিকা (বারবার লেখা এড়াতে)
+  const orderList: any[] = [];
+  buyerOrders.filter(o => o.type === "Delivery").forEach(o => {
+    if (!orderList.find(x => x.orderNo === o.orderNo && x.styleNo === (o.styleNo || ""))) {
+      orderList.push({ orderNo: o.orderNo, styleNo: o.styleNo || "" });
+    }
+  });
+  const selectedOrderIdx = orderList.findIndex(x => x.orderNo === saleData.orderNo && x.styleNo === saleData.styleNo);
 
   if (selectedBuyer) {
     let totalBill = buyerOrders.filter(o => o.type === "Delivery").reduce((sum, o) => sum + Number(o.amount || 0), 0);
@@ -181,7 +203,7 @@ function BuyerStatementContent() {
           </div>
           <div className="flex flex-wrap gap-2">
             <button onClick={handleShareStatement} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Share2 size={16}/> Statement</button>
-            <button onClick={() => { setIsEditDelivery(false); setSaleData({ id: "", productId: "", productName: "", qty: "", salePrice: "", amount: "", orderNo: "", styleNo: "", oldQty: 0 }); setShowSaleModal(true); }} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><ShoppingBag size={16}/> Add Delivery</button>
+            <button onClick={() => { const last = buyerOrders.find(o => o.type === "Delivery"); setIsEditDelivery(false); setProdSearch(""); setSaleData({ id: "", productId: "", productName: "", qty: "", salePrice: "", amount: "", orderNo: last ? last.orderNo : "", styleNo: last ? (last.styleNo || "") : "", oldQty: 0 }); setShowSaleModal(true); }} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><ShoppingBag size={16}/> Add Delivery</button>
             <button onClick={() => { setIsEditPayment(false); setPaymentData({ id: "", amount: "", note: "", orderNoRef: "" }); setShowPaymentModal(true); }} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Wallet size={16}/> Add Payment</button>
           </div>
         </div>
@@ -215,7 +237,7 @@ function BuyerStatementContent() {
                 </div>
                 <div className="flex justify-between items-end">
                   <p className="text-xs text-gray-600 max-w-[70%]">
-                    {o.type === "Delivery" ? `${o.productName} (${o.qty} pcs) - Order: ${o.orderNo}` : `Ref: ${o.orderNoRef || "-"} | ${o.details || ""}`}
+                    {o.type === "Delivery" ? `${o.productName} (${o.qty} pcs) - Order: ${o.orderNo} | Style: ${o.styleNo || "-"}` : `Ref: ${o.orderNoRef || "-"} | ${o.details || ""}`}
                   </p>
                   <div className="flex gap-2">
                     <button onClick={() => {
@@ -240,7 +262,7 @@ function BuyerStatementContent() {
                   <td className="px-3 py-3">{new Date(o.date).toLocaleDateString()}</td>
                   <td className={`px-3 py-3 font-bold ${o.type === 'Payment' ? 'text-green-600' : 'text-blue-600'}`}>{o.type}</td>
                   <td className="px-3 py-3">
-                    {o.type === "Delivery" ? `${o.productName} (${o.qty} pcs) - Order: ${o.orderNo}` : `Payment for Order: ${o.orderNoRef || "N/A"} | ${o.details || ""}`}
+                    {o.type === "Delivery" ? `${o.productName} (${o.qty} pcs) - Order: ${o.orderNo} | Style: ${o.styleNo || "-"}` : `Payment for Order: ${o.orderNoRef || "N/A"} | ${o.details || ""}`}
                   </td>
                   <td className={`px-3 py-3 text-right font-bold ${o.type === 'Payment' ? 'text-green-600' : 'text-blue-600'}`}>৳{o.amount}</td>
                   <td className="px-3 py-3 flex justify-center gap-2">
@@ -258,9 +280,23 @@ function BuyerStatementContent() {
 
         {showSaleModal && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-            <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+            <div className="bg-white p-5 rounded-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
               <h3 className="text-lg font-bold mb-4">{isEditDelivery ? "Edit Delivery" : "Add Delivery"}</h3>
               <form onSubmit={handleSaleSave} className="space-y-3">
+                {!isEditDelivery && (
+                  <div>
+                    <label className="text-xs font-medium">Select Order</label>
+                    <select className="w-full border p-2 rounded" value={selectedOrderIdx >= 0 ? String(selectedOrderIdx) : "new"} onChange={e => {
+                      if (e.target.value === "new") { setSaleData({...saleData, orderNo: "", styleNo: ""}); }
+                      else { const o = orderList[Number(e.target.value)]; setSaleData({...saleData, orderNo: o.orderNo, styleNo: o.styleNo}); }
+                    }}>
+                      <option value="new">+ নতুন অর্ডার (নিচে লিখুন)</option>
+                      {orderList.map((o, idx) => (
+                        <option key={idx} value={String(idx)}>{o.orderNo} | Style: {o.styleNo || "-"}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <div><label className="text-xs">Order No</label><input required className="w-full border p-2 rounded" value={saleData.orderNo} onChange={e => setSaleData({...saleData, orderNo: e.target.value})} placeholder="e.g. 101" /></div>
                   <div><label className="text-xs">Style No</label><input required className="w-full border p-2 rounded" value={saleData.styleNo} onChange={e => setSaleData({...saleData, styleNo: e.target.value})} /></div>
