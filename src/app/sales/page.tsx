@@ -212,22 +212,25 @@ function SalesHistoryContent() {
       {/* নতুন সেল করার মডাল */}
       {showAddSale && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+          <div className="bg-white p-5 rounded-xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
             <h3 className="text-lg font-bold mb-4">Add New Sale</h3>
             <form onSubmit={handleSaveNewSale} className="space-y-3">
               <div>
                 <label className="text-xs font-bold text-gray-700">Shop</label>
                 <div className="w-full border p-2 rounded bg-gray-50 text-brand-navy font-medium">{shopName}</div>
               </div>
-              <div className="relative">
+              <div>
                 <label className="text-xs font-bold text-gray-700">Search Product</label>
                 <input type="text" placeholder="Type name..." className="w-full border p-2 rounded mb-1" value={prodSearch} onChange={e => { setProdSearch(e.target.value); setShowList(true); setNewSaleData({...newSaleData, productId: "", productName: ""}); }} />
                 {showList && prodSearch && (
-                  <div className="absolute w-full max-h-32 overflow-y-auto border rounded bg-white shadow-lg z-10">
+                  <div className="w-full max-h-52 overflow-y-auto border rounded bg-white">
                     {searchedProducts.map(p => (
                       <div key={p.id} onClick={() => { setNewSaleData({...newSaleData, productId: p.id, productName: p.productName, salePrice: p.costPrice.toString()}); setProdSearch(p.productName); setShowList(false); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50 flex justify-between">
-                        <span>{p.productName}</span>
-                        <span className="text-gray-500">Stock: {p.stock}</span>
+                        <div>
+                          <p>{p.productName}</p>
+                          {(p.size || p.color) && <p className="text-[10px] text-gray-400">{[p.size, p.color].filter(Boolean).join(" • ")}</p>}
+                        </div>
+                        <span className="text-gray-500 whitespace-nowrap ml-2">Stock: {Math.round(Number(p.stock || 0) * 100) / 100}</span>
                       </div>
                     ))}
                   </div>
