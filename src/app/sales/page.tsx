@@ -2,241 +2,365 @@
 "use client";
 import { useState, useEffect, Suspense } from "react";
 import { db } from "../../lib/firebase";
-import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, orderBy, addDoc, increment } from "firebase/firestore";
+import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, addDoc, increment } from "firebase/firestore";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Search, ArrowLeft, Download, Store, Edit, Trash2, PlusCircle } from "lucide-react";
+import { Search, ArrowLeft, PlusCircle, Edit, Trash2, Phone, Building, Share2, Wallet, ShoppingBag } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
-function SalesHistoryContent() {
+function BuyerStatementContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const shopName = searchParams.get("shop") || "";
+  const shopParam = searchParams.get("shop") || "";
 
-  const [sales, setSales] = useState<any[]>([]);
+  const [buyers, setBuyers] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
+  const [selectedBuyer, setSelectedBuyer] = useState<any>(null);
+  const [buyerOrders, setBuyerOrders] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  
-  // এডিট স্টেট
-  const [editingSale, setEditingSale] = useState<any>(null);
-  const [editData, setEditData] = useState({ title: "", amount: 0 });
 
-  // নতুন সেল স্টেট
-  const [showAddSale, setShowAddSale] = useState(false);
-  const [newSaleData, setNewSaleData] = useState({ productId: "", productName: "", qty: "", salePrice: "", amount: "" });
+  const [showBuyerModal, setShowBuyerModal] = useState(false);
+  const [buyerFormData, setBuyerFormData] = useState({ id: "", name: "", phone: "", address: "", garmentsName: "", shop: shopParam });
+
+  // ডেলিভারি স্টেট
+  const [showSaleModal, setShowSaleModal] = useState(false);
+  const [isEditDelivery, setIsEditDelivery] = useState(false);
+  const [saleData, setSaleData] = useState({ id: "", productId: "", productName: "", qty: "", amount: "", orderNo: "", styleNo: "", oldQty: 0 });
   const [prodSearch, setProdSearch] = useState("");
 
-  useEffect(() => {
-    if (!shopName) return;
+  // পেমেন্ট স্টেট
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [isEditPayment, setIsEditPayment] = useState(false);
+  const [paymentData, setPaymentData] = useState({ id: "", amount: "", note: "", orderNoRef: "" });
 
-    const unsubSales = onSnapshot(query(collection(db, "shop_statements"), orderBy("date", "desc")), (snapshot) => {
+  useEffect(() => {
+    const unsubBuyers = onSnapshot(query(collection(db, "buyers")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setSales(data.filter(s => s.shop === shopName && s.type === 'Sale'));
+      setBuyers(data.filter(b => shopParam === "" || b.shop === shopParam));
     });
 
     const unsubProducts = onSnapshot(query(collection(db, "shop_inventories")), (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setProducts(data.filter(p => p.shop === shopName));
+      setProducts(data.filter(p => shopParam === "" || p.shop === shopParam));
     });
 
-    return () => { unsubSales(); unsubProducts(); };
-  }, [shopName]);
+    return () => { unsubBuyers(); unsubProducts(); };
+  }, [shopParam]);
 
-  const filteredSales = sales.filter(s => (s.title || "").toLowerCase().includes(searchTerm.toLowerCase()));
+  useEffect(() => {
+    if (!selectedBuyer) return;
+    const unsubOrders = onSnapshot(query(collection(db, "buyer_orders")), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setBuyerOrders(data.filter(o => o.buyerId === selectedBuyer.id).sort((a,b) => new Date(b.date) - new Date(a.date)));
+    });
+    return () => unsubOrders();
+  }, [selectedBuyer]);
 
-  const todayStr = new Date().toISOString().split("T")[0];
-  const todayTotal = filteredSales.filter(s => s.date?.startsWith(todayStr)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
-
-  const handleSaveNewSale = async (e: React.FormEvent) => {
+  const handleBuyerSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const prod = products.find(p => p.id === newSaleData.productId);
-      if (!prod || prod.stock < Number(newSaleData.qty)) return alert("স্টক পর্যাপ্ত নয়!");
-      
-      await updateDoc(doc(db, "shop_inventories", prod.id), { stock: increment(-Number(newSaleData.qty)) });
-      await addDoc(collection(db, "shop_statements"), {
-        shop: shopName, type: "Sale", title: prod.productName, qty: Number(newSaleData.qty), price: Number(newSaleData.salePrice), amount: Number(newSaleData.amount), date: new Date().toISOString()
-      });
-      
-      setShowAddSale(false); setNewSaleData({ productId: "", productName: "", qty: "", salePrice: "", amount: "" }); setProdSearch("");
-      alert("নতুন সেল সেভ হয়েছে!");
+      if (buyerFormData.id) {
+        await updateDoc(doc(db, "buyers", buyerFormData.id), { name: buyerFormData.name, phone: buyerFormData.phone, address: buyerFormData.address, garmentsName: buyerFormData.garmentsName });
+      } else {
+        await addDoc(collection(db, "buyers"), { ...buyerFormData, createdAt: new Date().toISOString() });
+      }
+      setShowBuyerModal(false); alert("সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  const handleUpdate = async (e: React.FormEvent) => {
+  // ডেলিভারি সেভ (এডিট + নতুন)
+  const handleSaleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await updateDoc(doc(db, "shop_statements", editingSale.id), { title: editData.title, amount: Number(editData.amount) });
-      setEditingSale(null); alert("আপডেট হয়েছে!");
+      if (isEditDelivery) {
+        await updateDoc(doc(db, "buyer_orders", saleData.id), {
+          orderNo: saleData.orderNo, styleNo: saleData.styleNo, qty: Number(saleData.qty), amount: Number(saleData.amount)
+        });
+        alert("ডেলিভারি আপডেট হয়েছে!");
+      } else {
+        const prod = products.find(p => p.id === saleData.productId);
+        if (!prod || prod.stock < Number(saleData.qty)) return alert("স্টক পর্যাপ্ত নয়!");
+
+        await updateDoc(doc(db, "shop_inventories", prod.id), { stock: increment(-Number(saleData.qty)) });
+        await addDoc(collection(db, "buyer_orders"), {
+          shop: shopParam, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, 
+          garments: selectedBuyer.garmentsName, orderNo: saleData.orderNo, styleNo: saleData.styleNo, 
+          productId: saleData.productId, productName: saleData.productName, 
+          qty: Number(saleData.qty), amount: Number(saleData.amount),
+          type: "Delivery", date: new Date().toISOString()
+        });
+        alert("নতুন ডেলিভারি সেভ হয়েছে!");
+      }
+      setShowSaleModal(false); setProdSearch("");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm("এই সেলস ডিলিট করতে চান?")) {
-      await deleteDoc(doc(db, "shop_statements", id));
-    }
+  // পেমেন্ট সেভ (এডিট + নতুন)
+  const handlePaymentSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      if (isEditPayment) {
+        await updateDoc(doc(db, "buyer_orders", paymentData.id), {
+          amount: Number(paymentData.amount), details: paymentData.note, orderNoRef: paymentData.orderNoRef
+        });
+        alert("পেমেন্ট আপডেট হয়েছে!");
+      } else {
+        await addDoc(collection(db, "buyer_orders"), {
+          shop: shopParam, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, 
+          type: "Payment", amount: Number(paymentData.amount), details: paymentData.note, 
+          orderNoRef: paymentData.orderNoRef, date: new Date().toISOString()
+        });
+        alert("পেমেন্ট সেভ হয়েছে!");
+      }
+      setShowPaymentModal(false);
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  const handleShare = () => {
-    if (filteredSales.length === 0) return alert("ডেটা নেই!");
+  const handleDeleteOrder = async (id: string, type: string, prodId: string, qty: number) => {
+    if (!window.confirm("ডিলিট করলে স্টক ফেরত আসবে। নিশ্চিত?")) return;
+    try {
+      if (type === "Delivery" && prodId) {
+        await updateDoc(doc(db, "shop_inventories", prodId), { stock: increment(Number(qty)) });
+      }
+      await deleteDoc(doc(db, "buyer_orders", id));
+    } catch (error) { alert("সমস্যা হয়েছে!"); }
+  };
+
+  const handleShareStatement = async () => {
+    if (buyerOrders.length === 0) return alert("ডেটা নেই!");
     const doc = new jsPDF();
-    doc.text(`Sales History - ${shopName}`, 14, 15);
-    const tableData = filteredSales.map(s => [new Date(s.date).toLocaleDateString(), s.title, s.qty || "-", s.price || "-", `৳${s.amount}`]);
-    autoTable(doc, { head: [['Date', 'Product', 'Qty', 'Price', 'Total']], body: tableData, startY: 25 });
-    doc.save(`Sales_${Date.now()}.pdf`);
+    doc.text(`Statement - ${selectedBuyer.name}`, 14, 15);
+    doc.text(`Company: ${selectedBuyer.garmentsName || "N/A"}`, 14, 22);
+    
+    let totalBill = buyerOrders.filter(o => o.type === "Delivery").reduce((sum, o) => sum + Number(o.amount || 0), 0);
+    let totalPaid = buyerOrders.filter(o => o.type === "Payment").reduce((sum, o) => sum + Number(o.amount || 0), 0);
+    
+    doc.text(`Total Bill: BDT ${totalBill}`, 14, 28);
+    doc.text(`Total Paid: BDT ${totalPaid}`, 14, 34);
+    doc.text(`Due: BDT ${totalBill - totalPaid}`, 14, 40);
+
+    const tableData = buyerOrders.map(o => [
+      new Date(o.date).toLocaleDateString(), 
+      o.type, 
+      o.type === "Delivery" ? `${o.orderNo} - ${o.productName} (${o.qty} pcs)` : `Ref: ${o.orderNoRef || "-"} | ${o.details || ""}`, 
+      o.amount
+    ]);
+
+    autoTable(doc, { head: [['Date', 'Type', 'Details', 'Amount']], body: tableData, startY: 46 });
+
+    const pdfBlob = doc.output('blob'); 
+    const file = new File([pdfBlob], `Statement_${selectedBuyer.name}.pdf`, { type: 'application/pdf' });
+    
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { 
+      try { await navigator.share({ files: [file], title: 'Buyer Statement' }); } catch (e) {} 
+    } else { doc.save(`Statement_${selectedBuyer.name}.pdf`); }
   };
 
   const searchedProducts = products.filter(p => p.productName.toLowerCase().includes(prodSearch.toLowerCase())).slice(0, 5);
 
-  // ✅ অটোমেটিক টোটাল টাকা হিসাব করার ফাংশন
-  const handleQtyChange = (val: string) => {
-    const price = newSaleData.salePrice;
-    const total = (Number(val) * Number(price)).toString();
-    setNewSaleData(prev => ({ ...prev, qty: val, amount: val && price ? total : "" }));
-  };
+  if (selectedBuyer) {
+    let totalBill = buyerOrders.filter(o => o.type === "Delivery").reduce((sum, o) => sum + Number(o.amount || 0), 0);
+    let totalPaid = buyerOrders.filter(o => o.type === "Payment").reduce((sum, o) => sum + Number(o.amount || 0), 0);
+    let due = totalBill - totalPaid;
+    
+    return (
+      <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-3">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSelectedBuyer(null)} className="bg-gray-100 p-2 rounded-lg"><ArrowLeft size={20} /></button>
+            <div>
+              <h2 className="text-xl md:text-2xl font-bold text-brand-navy">{selectedBuyer.name}</h2>
+              <p className="text-xs text-gray-500">{selectedBuyer.garmentsName} | {selectedBuyer.phone}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={handleShareStatement} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Share2 size={16}/> Statement</button>
+            <button onClick={() => { setIsEditDelivery(false); setSaleData({ id: "", productId: "", productName: "", qty: "", amount: "", orderNo: "", styleNo: "", oldQty: 0 }); setShowSaleModal(true); }} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><ShoppingBag size={16}/> Add Delivery</button>
+            <button onClick={() => { setIsEditPayment(false); setPaymentData({ id: "", amount: "", note: "", orderNoRef: "" }); setShowPaymentModal(true); }} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Wallet size={16}/> Add Payment</button>
+          </div>
+        </div>
 
-  const handlePriceChange = (val: string) => {
-    const qty = newSaleData.qty;
-    const total = (Number(qty) * Number(val)).toString();
-    setNewSaleData(prev => ({ ...prev, salePrice: val, amount: qty && val ? total : "" }));
-  };
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          <div className="bg-white p-3 rounded-xl border-t-4 border-blue-500 text-center">
+            <p className="text-xs text-gray-500">Total Bill</p>
+            <p className="font-bold text-blue-600 text-lg">৳{totalBill}</p>
+          </div>
+          <div className="bg-white p-3 rounded-xl border-t-4 border-green-500 text-center">
+            <p className="text-xs text-gray-500">Total Paid</p>
+            <p className="font-bold text-green-600 text-lg">৳{totalPaid}</p>
+          </div>
+          <div className="bg-white p-3 rounded-xl border-t-4 border-red-500 text-center">
+            <p className="text-xs text-gray-500">Due</p>
+            <p className="font-bold text-red-600 text-lg">৳{due}</p>
+          </div>
+        </div>
+
+        {/* ✅ মোবাইল ফ্রেন্ডলি লেনদেন লিস্ট */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          
+          {/* মোবাইল ভিউ */}
+          <div className="md:hidden p-3 space-y-3 bg-gray-50">
+            {buyerOrders.length === 0 && <p className="text-center py-4 text-gray-500">কোনো লেনদেন নেই।</p>}
+            {buyerOrders.map((o) => (
+              <div key={o.id} className="bg-white p-3 rounded-lg border shadow-sm">
+                <div className="flex justify-between items-start border-b pb-2 mb-2">
+                  <div>
+                    <p className={`font-bold ${o.type === 'Payment' ? 'text-green-600' : 'text-blue-600'}`}>{o.type}</p>
+                    <p className="text-[11px] text-gray-500">{new Date(o.date).toLocaleDateString()}</p>
+                  </div>
+                  <p className={`font-bold ${o.type === 'Payment' ? 'text-green-600' : 'text-blue-600'}`}>৳{o.amount}</p>
+                </div>
+                <div className="flex justify-between items-end">
+                  <p className="text-xs text-gray-600 max-w-[70%]">
+                    {o.type === "Delivery" ? `${o.productName} (${o.qty} pcs) - Order: ${o.orderNo}` : `Ref: ${o.orderNoRef || "-"} | ${o.details || ""}`}
+                  </p>
+                  <div className="flex gap-2">
+                    <button onClick={() => {
+                      if(o.type === "Payment") { setIsEditPayment(true); setPaymentData({ id: o.id, amount: o.amount, note: o.details || "", orderNoRef: o.orderNoRef || "" }); setShowPaymentModal(true); }
+                      else { setIsEditDelivery(true); setSaleData({ id: o.id, productId: o.productId, productName: o.productName, qty: o.qty, amount: o.amount, orderNo: o.orderNo, styleNo: o.styleNo, oldQty: o.qty }); setShowSaleModal(true); }
+                    }} className="p-1.5 text-blue-600 bg-blue-50 rounded"><Edit size={14}/></button>
+                    <button onClick={() => handleDeleteOrder(o.id, o.type, o.productId, o.qty)} className="p-1.5 text-red-600 bg-red-50 rounded"><Trash2 size={14}/></button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* ডেস্কটপ টেবিল */}
+          <table className="w-full text-left text-sm hidden md:table">
+            <thead className="bg-gray-100 text-gray-600">
+              <tr><th className="px-3 py-3">Date</th><th className="px-3 py-3">Type</th><th className="px-3 py-3">Details</th><th className="px-3 py-3 text-right">Amount</th><th className="px-3 py-3 text-center">Action</th></tr>
+            </thead>
+            <tbody>
+              {buyerOrders.length === 0 && <tr><td colSpan={5} className="text-center py-4 text-gray-500">কোনো লেনদেন নেই।</td></tr>}
+              {buyerOrders.map((o) => (
+                <tr key={o.id} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-3 py-3">{new Date(o.date).toLocaleDateString()}</td>
+                  <td className={`px-3 py-3 font-bold ${o.type === 'Payment' ? 'text-green-600' : 'text-blue-600'}`}>{o.type}</td>
+                  <td className="px-3 py-3">
+                    {o.type === "Delivery" ? `${o.productName} (${o.qty} pcs) - Order: ${o.orderNo}` : `Payment for Order: ${o.orderNoRef || "N/A"} | ${o.details || ""}`}
+                  </td>
+                  <td className={`px-3 py-3 text-right font-bold ${o.type === 'Payment' ? 'text-green-600' : 'text-blue-600'}`}>৳{o.amount}</td>
+                  <td className="px-3 py-3 flex justify-center gap-2">
+                    <button onClick={() => {
+                      if(o.type === "Payment") { setIsEditPayment(true); setPaymentData({ id: o.id, amount: o.amount, note: o.details || "", orderNoRef: o.orderNoRef || "" }); setShowPaymentModal(true); }
+                      else { setIsEditDelivery(true); setSaleData({ id: o.id, productId: o.productId, productName: o.productName, qty: o.qty, amount: o.amount, orderNo: o.orderNo, styleNo: o.styleNo, oldQty: o.qty }); setShowSaleModal(true); }
+                    }} className="p-1 text-blue-600 bg-blue-50 rounded"><Edit size={14}/></button>
+                    <button onClick={() => handleDeleteOrder(o.id, o.type, o.productId, o.qty)} className="p-1 text-red-600 bg-red-50 rounded"><Trash2 size={14}/></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ডেলিভারি মডাল */}
+        {showSaleModal && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+              <h3 className="text-lg font-bold mb-4">{isEditDelivery ? "Edit Delivery" : "Add Delivery"}</h3>
+              <form onSubmit={handleSaleSave} className="space-y-3">
+                <div className="grid grid-cols-2 gap-2">
+                  <div><label className="text-xs">Order No</label><input required className="w-full border p-2 rounded" value={saleData.orderNo} onChange={e => setSaleData({...saleData, orderNo: e.target.value})} /></div>
+                  <div><label className="text-xs">Style No</label><input required className="w-full border p-2 rounded" value={saleData.styleNo} onChange={e => setSaleData({...saleData, styleNo: e.target.value})} /></div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium">Search Product</label>
+                  <input type="text" placeholder="Type name..." className="w-full border p-2 rounded mb-1" value={prodSearch} onChange={e => setProdSearch(e.target.value)} disabled={isEditDelivery} />
+                  {!isEditDelivery && (
+                    <div className="max-h-24 overflow-y-auto border rounded bg-gray-50">
+                      {searchedProducts.map(p => (
+                        <div key={p.id} onClick={() => { setSaleData({...saleData, productId: p.id, productName: p.productName, amount: p.costPrice.toString()}); setProdSearch(p.productName); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50">{p.productName} - Stock: {p.stock}</div>
+                      ))}
+                    </div>
+                  )}
+                  {isEditDelivery && <p className="text-xs text-green-600 mt-1">Selected: {saleData.productName}</p>}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><label className="text-xs">Qty</label><input required type="number" className="w-full border p-2 rounded" value={saleData.qty} onChange={e => setSaleData({...saleData, qty: e.target.value})} /></div>
+                  <div><label className="text-xs">Total Amount</label><input required type="number" className="w-full border p-2 rounded" value={saleData.amount} onChange={e => setSaleData({...saleData, amount: e.target.value})} /></div>
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button type="button" onClick={() => setShowSaleModal(false)} className="px-4 py-2 border rounded">Cancel</button>
+                  <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Save</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* পেমেন্ট মডাল */}
+        {showPaymentModal && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+            <div className="bg-white p-5 rounded-xl w-full max-w-sm">
+              <h3 className="text-lg font-bold mb-4">{isEditPayment ? "Edit Payment" : "Add Payment"}</h3>
+              <form onSubmit={handlePaymentSave} className="space-y-3">
+                <div>
+                  <label className="text-xs font-medium">Select Order</label>
+                  <select required className="w-full border p-2 rounded mb-2" value={paymentData.orderNoRef} onChange={e => setPaymentData({...paymentData, orderNoRef: e.target.value})}>
+                    <option value="">-- Select Order --</option>
+                    {Array.from(new Set(buyerOrders.filter(o => o.type === "Delivery").map(o => o.orderNo))).map((orderNo, idx) => (
+                      <option key={idx} value={orderNo}>{orderNo}</option>
+                    ))}
+                  </select>
+                </div>
+                <div><label className="text-xs">Payment Amount (৳)</label><input required type="number" className="w-full border p-2 rounded text-lg font-bold text-green-600" value={paymentData.amount} onChange={e => setPaymentData({...paymentData, amount: e.target.value})} /></div>
+                <div><label className="text-xs">Note (Optional)</label><input className="w-full border p-2 rounded" value={paymentData.note} onChange={e => setPaymentData({...paymentData, note: e.target.value})} /></div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button type="button" onClick={() => setShowPaymentModal(false)} className="px-4 py-2 border rounded">Cancel</button>
+                  <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded">Save Payment</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
-      <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 gap-3">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
           <button onClick={() => router.back()} className="bg-gray-100 p-2 rounded-lg"><ArrowLeft size={20} /></button>
-          <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Sales History</h2>
+          <h2 className="text-xl md:text-2xl font-bold text-brand-navy">Buyers ({shopParam || "All"})</h2>
         </div>
-        <div className="flex gap-2 w-full md:w-auto">
-          <button onClick={() => setShowAddSale(true)} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1 flex-1 justify-center md:flex-none"><PlusCircle size={16}/> Add Sale</button>
-          <button onClick={handleShare} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Download size={16}/> PDF</button>
-        </div>
-      </div>
-
-      <div className="bg-green-100 text-green-800 p-3 rounded-lg mb-4 font-bold border border-green-300">
-        Today's Total Sales: ৳{todayTotal}
-      </div>
-
-      <div className="bg-white p-2 rounded-xl shadow-sm border border-gray-200 mb-4 flex items-center gap-2">
-        <Store size={16} className="text-gray-400 ml-2" />
-        <span className="font-bold text-sm text-brand-navy py-1">{shopName}</span>
+        <button onClick={() => { setBuyerFormData({ id: "", name: "", phone: "", address: "", garmentsName: "", shop: shopParam }); setShowBuyerModal(true); }} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1">
+          <PlusCircle size={16}/> Add Buyer
+        </button>
       </div>
 
       <div className="bg-white p-2 rounded-lg border flex items-center gap-2 w-full max-w-sm mb-4">
         <Search size={16} className="text-gray-400" />
-        <input type="text" placeholder="Search..." className="outline-none text-sm w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+        <input type="text" placeholder="Search Buyer..." className="outline-none text-sm w-full" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
       </div>
 
-      {/* ✅ মোবাইল ফ্রেন্ডলি কার্ড ডিজাইন */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="md:hidden p-3 space-y-3 bg-gray-50">
-          {filteredSales.length === 0 && <p className="text-center py-4 text-gray-500">কোনো লেনদেন নেই।</p>}
-          {filteredSales.map(sale => (
-            <div key={sale.id} className="bg-white p-3 rounded-lg border shadow-sm">
-              <div className="flex justify-between items-start border-b pb-2 mb-2">
-                <div>
-                  <p className="font-bold text-brand-navy">{sale.title}</p>
-                  <p className="text-[11px] text-gray-500">{new Date(sale.date).toLocaleDateString()}</p>
-                </div>
-                <p className="font-bold text-green-600">৳{sale.amount}</p>
-              </div>
-              <div className="flex justify-between items-center text-xs">
-                <span className="text-gray-500">Qty: {sale.qty || "-"} | Price: ৳{sale.price || "-"}</span>
-                <div className="flex gap-2">
-                  <button onClick={() => { setEditingSale(sale); setEditData({ title: sale.title, amount: sale.amount }); }} className="p-1.5 text-blue-600 bg-blue-50 rounded"><Edit size={14}/></button>
-                  <button onClick={() => handleDelete(sale.id)} className="p-1.5 text-red-600 bg-red-50 rounded"><Trash2 size={14}/></button>
-                </div>
-              </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {buyers.filter(b => b.name.toLowerCase().includes(searchTerm.toLowerCase())).map(buyer => (
+          <div key={buyer.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center cursor-pointer hover:shadow-md transition" onClick={() => setSelectedBuyer(buyer)}>
+            <div>
+              <p className="font-bold text-brand-navy">{buyer.name}</p>
+              <p className="text-xs text-gray-500 flex items-center gap-1 mt-1"><Building size={12}/> {buyer.garmentsName}</p>
+              <p className="text-xs text-gray-500 flex items-center gap-1"><Phone size={12}/> {buyer.phone}</p>
             </div>
-          ))}
-        </div>
-
-        {/* ডেস্কটপ টেবিল */}
-        <table className="w-full text-left text-sm hidden md:table">
-          <thead className="bg-brand-navy text-white">
-            <tr><th className="px-3 py-3">Date</th><th className="px-3 py-3">Product</th><th className="px-3 py-3 text-center">Qty</th><th className="px-3 py-3 text-right">Price</th><th className="px-3 py-3 text-right">Total</th><th className="px-3 py-3 text-center">Action</th></tr>
-          </thead>
-          <tbody>
-            {filteredSales.length === 0 && <tr><td colSpan={6} className="text-center py-4 text-gray-500">কোনো লেনদেন নেই।</td></tr>}
-            {filteredSales.map(sale => (
-              <tr key={sale.id} className="border-b last:border-0 hover:bg-gray-50">
-                <td className="px-3 py-3">{new Date(sale.date).toLocaleDateString()}</td>
-                <td className="px-3 py-3 font-medium text-brand-navy">{sale.title}</td>
-                <td className="px-3 py-3 text-center">{sale.qty || "-"}</td>
-                <td className="px-3 py-3 text-right">৳{sale.price || "-"}</td>
-                <td className="px-3 py-3 text-right font-bold text-green-600">৳{sale.amount}</td>
-                <td className="px-3 py-3 flex justify-center gap-2">
-                  <button onClick={() => { setEditingSale(sale); setEditData({ title: sale.title, amount: sale.amount }); }} className="p-1 text-blue-600 bg-blue-50 rounded"><Edit size={14}/></button>
-                  <button onClick={() => handleDelete(sale.id)} className="p-1 text-red-600 bg-red-50 rounded"><Trash2 size={14}/></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            <div className="flex gap-2">
+              <button onClick={(e) => { e.stopPropagation(); setBuyerFormData(buyer); setShowBuyerModal(true); }} className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Edit size={16}/></button>
+              <button onClick={(e) => { e.stopPropagation(); if(window.confirm("ডিলিট করবেন?")) deleteDoc(doc(db, "buyers", buyer.id)); }} className="p-2 bg-red-50 text-red-600 rounded-lg"><Trash2 size={16}/></button>
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* নতুন সেল করার মডাল */}
-      {showAddSale && (
+      {showBuyerModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-5 rounded-xl w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-4">Add New Sale</h3>
-            <form onSubmit={handleSaveNewSale} className="space-y-3">
-              <div>
-                <label className="text-xs font-bold text-gray-700">Shop</label>
-                <div className="w-full border p-2 rounded bg-gray-50 text-brand-navy font-medium">{shopName}</div>
-              </div>
-              <div className="relative">
-                <label className="text-xs font-bold text-gray-700">Search Product</label>
-                <input type="text" placeholder="Type name..." className="w-full border p-2 rounded mb-1" value={prodSearch} onChange={e => setProdSearch(e.target.value)} />
-                {prodSearch && (
-                  <div className="absolute w-full max-h-32 overflow-y-auto border rounded bg-white shadow-lg z-10">
-                    {searchedProducts.map(p => (
-                      <div key={p.id} onClick={() => { setNewSaleData({...newSaleData, productId: p.id, productName: p.productName, salePrice: p.costPrice.toString()}); setProdSearch(p.productName); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50 flex justify-between">
-                        <span>{p.productName}</span>
-                        <span className="text-gray-500">Stock: {p.stock}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {newSaleData.productName && <p className="text-xs text-green-600 font-bold mt-1">Selected: {newSaleData.productName}</p>}
-              </div>
-              
-              {/* ✅ ৩টি ঘর: Quantity, Sale Price, Total Amount */}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs font-bold text-gray-700">Quantity</label>
-                  <input required type="number" className="w-full border p-2 rounded" value={newSaleData.qty} onChange={e => handleQtyChange(e.target.value)} />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-700">Sale Price (৳)</label>
-                  <input required type="number" className="w-full border p-2 rounded" value={newSaleData.salePrice} onChange={e => handlePriceChange(e.target.value)} />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-700">Total Amount (৳)</label>
-                <input required type="number" className="w-full border p-2 rounded font-bold text-green-600 text-lg bg-green-50" value={newSaleData.amount} onChange={e => setNewSaleData({...newSaleData, amount: e.target.value})} />
-              </div>
-
+            <h3 className="text-lg font-bold mb-4">{buyerFormData.id ? "Edit Buyer" : "Add Buyer"}</h3>
+            <form onSubmit={handleBuyerSave} className="space-y-3">
+              <div><label className="text-xs">Company Name</label><input required className="w-full border p-2 rounded" value={buyerFormData.garmentsName} onChange={e => setBuyerFormData({...buyerFormData, garmentsName: e.target.value})} /></div>
+              <div><label className="text-xs">Buyer Name</label><input required className="w-full border p-2 rounded" value={buyerFormData.name} onChange={e => setBuyerFormData({...buyerFormData, name: e.target.value})} /></div>
+              <div><label className="text-xs">Phone</label><input className="w-full border p-2 rounded" value={buyerFormData.phone} onChange={e => setBuyerFormData({...buyerFormData, phone: e.target.value})} /></div>
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setShowAddSale(false)} className="px-4 py-2 border rounded">Cancel</button>
-                <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">Save Sale</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* এডিট মডাল */}
-      {editingSale && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl w-full max-w-sm">
-            <h3 className="text-lg font-bold mb-4">Edit Sale</h3>
-            <form onSubmit={handleUpdate} className="space-y-3">
-              <div><label className="text-xs">Details</label><input required className="w-full border p-2 rounded" value={editData.title} onChange={e => setEditData({...editData, title: e.target.value})} /></div>
-              <div><label className="text-xs">Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={editData.amount} onChange={e => setEditData({...editData, amount: Number(e.target.value)})} /></div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setEditingSale(null)} className="px-4 py-2 border rounded">Cancel</button>
+                <button type="button" onClick={() => setShowBuyerModal(false)} className="px-4 py-2 border rounded">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button>
               </div>
             </form>
@@ -247,10 +371,10 @@ function SalesHistoryContent() {
   );
 }
 
-export default function SalesPage() {
+export default function BuyerStatementPage() {
   return (
     <Suspense fallback={<div className="text-center py-10">Loading...</div>}>
-      <SalesHistoryContent />
+      <BuyerStatementContent />
     </Suspense>
   );
 }
