@@ -26,9 +26,9 @@ function BuyerStatementContent() {
   const [saleData, setSaleData] = useState({ productId: "", productName: "", qty: "", amount: "", orderNo: "", styleNo: "" });
   const [prodSearch, setProdSearch] = useState("");
 
-  // ✅ নতুন পেমেন্ট স্টেট
+  // ✅ পেমেন্ট স্টেট (অর্ডার রেফারেন্স সহ)
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentData, setPaymentData] = useState({ amount: "", note: "" });
+  const [paymentData, setPaymentData] = useState({ amount: "", note: "", orderNoRef: "" });
 
   useEffect(() => {
     const unsubBuyers = onSnapshot(query(collection(db, "buyers")), (snapshot) => {
@@ -65,7 +65,7 @@ function BuyerStatementContent() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // ✅ মাল ডেলিভারি সেভ
+  // মাল ডেলিভারি সেভ
   const handleSaleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -86,13 +86,15 @@ function BuyerStatementContent() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
-  // ✅ পেমেন্ট সেভ
+  // ✅ পেমেন্ট সেভ (অর্ডার রেফারেন্স সহ)
   const handlePaymentSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await addDoc(collection(db, "buyer_orders"), {
         shop: shopParam, buyerId: selectedBuyer.id, buyerName: selectedBuyer.name, 
-        type: "Payment", amount: Number(paymentData.amount), details: paymentData.note, date: new Date().toISOString()
+        type: "Payment", amount: Number(paymentData.amount), details: paymentData.note, 
+        orderNoRef: paymentData.orderNoRef, // ✅ কোন অর্ডারের টাকা
+        date: new Date().toISOString()
       });
       setShowPaymentModal(false); alert("পেমেন্ট সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
@@ -108,20 +110,28 @@ function BuyerStatementContent() {
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
 
+  // ✅ স্টেটমেন্ট শেয়ার (অর্ডারভিত্তিক)
   const handleShareStatement = async () => {
     if (buyerOrders.length === 0) return alert("ডেটা নেই!");
     const doc = new jsPDF();
     doc.text(`Statement - ${selectedBuyer.name}`, 14, 15);
+    doc.text(`Company: ${selectedBuyer.garmentsName || "N/A"}`, 14, 22);
     
     let totalBill = buyerOrders.filter(o => o.type === "Delivery").reduce((sum, o) => sum + Number(o.amount || 0), 0);
     let totalPaid = buyerOrders.filter(o => o.type === "Payment").reduce((sum, o) => sum + Number(o.amount || 0), 0);
     
-    doc.text(`Total Bill: BDT ${totalBill}`, 14, 22);
-    doc.text(`Total Paid: BDT ${totalPaid}`, 14, 28);
-    doc.text(`Due: BDT ${totalBill - totalPaid}`, 14, 34);
+    doc.text(`Total Bill: BDT ${totalBill}`, 14, 28);
+    doc.text(`Total Paid: BDT ${totalPaid}`, 14, 34);
+    doc.text(`Due: BDT ${totalBill - totalPaid}`, 14, 40);
 
-    const tableData = buyerOrders.map(o => [new Date(o.date).toLocaleDateString(), o.type, o.productName || o.details, o.qty || "-", o.amount]);
-    autoTable(doc, { head: [['Date', 'Type', 'Details', 'Qty', 'Amount']], body: tableData, startY: 40 });
+    const tableData = buyerOrders.map(o => [
+      new Date(o.date).toLocaleDateString(), 
+      o.type, 
+      o.type === "Delivery" ? `${o.orderNo} - ${o.productName} (${o.qty} pcs)` : `Ref: ${o.orderNoRef || "-"} | ${o.details || ""}`, 
+      o.amount
+    ]);
+
+    autoTable(doc, { head: [['Date', 'Type', 'Details', 'Amount']], body: tableData, startY: 46 });
 
     const pdfBlob = doc.output('blob'); 
     const file = new File([pdfBlob], `Statement_${selectedBuyer.name}.pdf`, { type: 'application/pdf' });
@@ -151,11 +161,10 @@ function BuyerStatementContent() {
           <div className="flex flex-wrap gap-2">
             <button onClick={handleShareStatement} className="bg-brand-navy text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Share2 size={16}/> Statement</button>
             <button onClick={() => { setSaleData({ productId: "", productName: "", qty: "", amount: "", orderNo: "", styleNo: "" }); setShowSaleModal(true); }} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><ShoppingBag size={16}/> Add Delivery</button>
-            <button onClick={() => { setPaymentData({ amount: "", note: "" }); setShowPaymentModal(true); }} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Wallet size={16}/> Add Payment</button>
+            <button onClick={() => { setPaymentData({ amount: "", note: "", orderNoRef: "" }); setShowPaymentModal(true); }} className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Wallet size={16}/> Add Payment</button>
           </div>
         </div>
 
-        {/* সারসংক্ষেপ কার্ড */}
         <div className="grid grid-cols-3 gap-2 mb-4">
           <div className="bg-white p-3 rounded-xl border-t-4 border-blue-500 text-center">
             <p className="text-xs text-gray-500">Total Bill</p>
@@ -183,7 +192,7 @@ function BuyerStatementContent() {
                   <td className="px-3 py-3">{new Date(o.date).toLocaleDateString()}</td>
                   <td className={`px-3 py-3 font-bold ${o.type === 'Payment' ? 'text-green-600' : 'text-blue-600'}`}>{o.type}</td>
                   <td className="px-3 py-3">
-                    {o.type === "Delivery" ? `${o.productName} (${o.qty} pcs) - ${o.orderNo}` : o.details}
+                    {o.type === "Delivery" ? `${o.productName} (${o.qty} pcs) - Order: ${o.orderNo}` : `Payment for Order: ${o.orderNoRef || "N/A"} | ${o.details || ""}`}
                   </td>
                   <td className={`px-3 py-3 text-right font-bold ${o.type === 'Payment' ? 'text-green-600' : 'text-blue-600'}`}>৳{o.amount}</td>
                   <td className="px-3 py-3 flex justify-center">
@@ -227,14 +236,27 @@ function BuyerStatementContent() {
           </div>
         )}
 
-        {/* পেমেন্ট মডাল */}
+        {/* ✅ পেমেন্ট মডাল (অর্ডার রেফারেন্স সহ) */}
         {showPaymentModal && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
             <div className="bg-white p-5 rounded-xl w-full max-w-sm">
               <h3 className="text-lg font-bold mb-4">Add Payment</h3>
               <form onSubmit={handlePaymentSave} className="space-y-3">
+                
+                <div>
+                  <label className="text-xs font-medium">Select Order (Which order is this payment for?)</label>
+                  <select required className="w-full border p-2 rounded mb-2" value={paymentData.orderNoRef} onChange={e => setPaymentData({...paymentData, orderNoRef: e.target.value})}>
+                    <option value="">-- Select Order --</option>
+                    {/* এই বায়ারের আগের সব ডেলিভারি অর্ডারগুলো ড্রপডাউনে আসবে */}
+                    {Array.from(new Set(buyerOrders.filter(o => o.type === "Delivery").map(o => o.orderNo))).map((orderNo, idx) => (
+                      <option key={idx} value={orderNo}>{orderNo}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div><label className="text-xs">Payment Amount (৳)</label><input required type="number" className="w-full border p-2 rounded text-lg font-bold text-green-600" value={paymentData.amount} onChange={e => setPaymentData({...paymentData, amount: e.target.value})} /></div>
                 <div><label className="text-xs">Note (Optional)</label><input className="w-full border p-2 rounded" value={paymentData.note} onChange={e => setPaymentData({...paymentData, note: e.target.value})} /></div>
+                
                 <div className="flex justify-end gap-2 pt-2">
                   <button type="button" onClick={() => setShowPaymentModal(false)} className="px-4 py-2 border rounded">Cancel</button>
                   <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded">Save Payment</button>
