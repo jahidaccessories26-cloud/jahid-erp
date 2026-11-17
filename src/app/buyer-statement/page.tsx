@@ -73,6 +73,12 @@ function BuyerStatementContent() {
     e.preventDefault();
     try {
       if (isEditDelivery) {
+        const diff = Number(saleData.qty) - Number(saleData.oldQty);
+        if (diff !== 0 && saleData.productId) {
+          const prod = products.find(p => p.id === saleData.productId);
+          if (diff > 0 && (!prod || prod.stock < diff)) return alert("স্টক পর্যাপ্ত নয়!");
+          await updateDoc(doc(db, "shop_inventories", saleData.productId), { stock: increment(-diff) });
+        }
         await updateDoc(doc(db, "buyer_orders", saleData.id), {
           orderNo: saleData.orderNo, styleNo: saleData.styleNo, qty: Number(saleData.qty), amount: Number(saleData.amount), price: Number(saleData.salePrice)
         });
@@ -272,8 +278,8 @@ function BuyerStatementContent() {
                   {isEditDelivery && <p className="text-xs text-green-600 mt-1">Selected: {saleData.productName}</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <div><label className="text-xs">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={saleData.qty} onChange={e => setSaleData({...saleData, qty: e.target.value})} /></div>
-                  <div><label className="text-xs">Sale Price (৳)</label><input required type="number" className="w-full border p-2 rounded" value={saleData.salePrice} onChange={e => setSaleData({...saleData, salePrice: e.target.value})} /></div>
+                  <div><label className="text-xs">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={saleData.qty} onChange={e => setSaleData({...saleData, qty: e.target.value, amount: String(Number(e.target.value || 0) * Number(saleData.salePrice || 0))})} /></div>
+                  <div><label className="text-xs">Sale Price (৳)</label><input required type="number" className="w-full border p-2 rounded" value={saleData.salePrice} onChange={e => setSaleData({...saleData, salePrice: e.target.value, amount: String(Number(saleData.qty || 0) * Number(e.target.value || 0))})} /></div>
                 </div>
                 <div><label className="text-xs">Total Amount (৳)</label><input required type="number" className="w-full border p-2 rounded" value={saleData.amount} onChange={e => setSaleData({...saleData, amount: e.target.value})} /></div>
                 <div className="flex justify-end gap-2 pt-2">
