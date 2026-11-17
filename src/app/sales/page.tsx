@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from "react";
 import { db } from "../../lib/firebase";
 import { collection, onSnapshot, query, doc, updateDoc, deleteDoc, orderBy, addDoc, increment } from "firebase/firestore";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Search, ArrowLeft, Download, Store, Edit, Trash2, PlusCircle, X } from "lucide-react";
+import { Search, ArrowLeft, Download, Store, Edit, Trash2, PlusCircle } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
@@ -87,6 +87,19 @@ function SalesHistoryContent() {
   };
 
   const searchedProducts = products.filter(p => p.productName.toLowerCase().includes(prodSearch.toLowerCase())).slice(0, 5);
+
+  // ✅ অটোমেটিক টোটাল টাকা হিসাব করার ফাংশন
+  const handleQtyChange = (val: string) => {
+    const price = newSaleData.salePrice;
+    const total = (Number(val) * Number(price)).toString();
+    setNewSaleData(prev => ({ ...prev, qty: val, amount: val && price ? total : "" }));
+  };
+
+  const handlePriceChange = (val: string) => {
+    const qty = newSaleData.qty;
+    const total = (Number(qty) * Number(val)).toString();
+    setNewSaleData(prev => ({ ...prev, salePrice: val, amount: qty && val ? total : "" }));
+  };
 
   return (
     <div className="max-w-5xl mx-auto pb-10 px-2 md:px-0">
@@ -193,21 +206,11 @@ function SalesHistoryContent() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs font-bold text-gray-700">Quantity</label>
-                  <input required type="number" className="w-full border p-2 rounded" value={newSaleData.qty} onChange={e => {
-                    setNewSaleData({...newSaleData, qty: e.target.value});
-                    if(e.target.value && newSaleData.salePrice) {
-                      setNewSaleData(prev => ({...prev, amount: (Number(e.target.value) * Number(prev.salePrice)).toString()}));
-                    }
-                  }} />
+                  <input required type="number" className="w-full border p-2 rounded" value={newSaleData.qty} onChange={e => handleQtyChange(e.target.value)} />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-gray-700">Sale Price (৳)</label>
-                  <input required type="number" className="w-full border p-2 rounded" value={newSaleData.salePrice} onChange={e => {
-                    setNewSaleData({...newSaleData, salePrice: e.target.value});
-                    if(e.target.value && newSaleData.qty) {
-                      setNewSaleData(prev => ({...prev, amount: (Number(e.target.value) * Number(prev.qty)).toString()}));
-                    }
-                  }} />
+                  <input required type="number" className="w-full border p-2 rounded" value={newSaleData.salePrice} onChange={e => handlePriceChange(e.target.value)} />
                 </div>
               </div>
               <div>
