@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { db } from "../lib/firebase";
 import { collection, onSnapshot, query } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Store, ArrowRight } from "lucide-react";
+import { Store, ArrowRight, Wallet } from "lucide-react";
 
 export default function HomePage() {
   const router = useRouter();
@@ -19,10 +19,19 @@ export default function HomePage() {
 
   return (
     <div className="max-w-5xl mx-auto p-4">
-      <h1 className="text-2xl font-bold text-brand-navy mb-6">Welcome, Jahid</h1>
-      
+      <h1 className="text-2xl font-bold text-brand-navy mb-4">Welcome, Jahid</h1>
+
+      {/* মালিকের জন্য দৈনিক মোট হিসাব */}
+      <div onClick={() => router.push("/daily-report")} className="bg-brand-navy text-white p-4 rounded-xl shadow-sm cursor-pointer hover:opacity-90 transition mb-6 flex items-center gap-3">
+        <div className="bg-white/10 p-3 rounded-lg"><Wallet size={24} /></div>
+        <div>
+          <h2 className="font-bold text-lg">দৈনিক মোট হিসাব</h2>
+          <p className="text-xs text-white/70">লাভ-লস, মালের দাম, পার্টির পাওনা, আমার দেনা</p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* ওয়্যারহাউস কার্ড */}
+        {/* ওয়্যারহাউস কার্ড */}
         <div onClick={() => router.push(`/shop-dashboard?shop=Warehouse`)} className="bg-white p-6 rounded-xl shadow-sm border-t-4 border-brand-navy cursor-pointer hover:shadow-md transition">
           <div className="flex items-center gap-3 mb-4">
             <div className="bg-brand-navy/10 p-3 rounded-lg"><Store className="text-brand-navy" size={24} /></div>
