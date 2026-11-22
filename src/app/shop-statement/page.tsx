@@ -27,7 +27,7 @@ const toDateInput = (iso: string) => {
 const todayStr = () => toDateInput(new Date().toISOString());
 const dateToIso = (dateStr: string) => dateStr === todayStr() ? new Date().toISOString() : new Date(`${dateStr}T12:00:00`).toISOString();
 
-const emptyForm = (type: string) => ({ id: "", type, category: "Other", title: "", note: "", amount: "", date: todayStr(), origDate: "" });
+const emptyForm = (type: string) => ({ id: "", type, category: "Other", title: "", note: "", amount: "", creditorId: "", date: todayStr(), origDate: "" });
 
 function ShopStatementContent() {
   const router = useRouter();
@@ -44,6 +44,7 @@ function ShopStatementContent() {
   const [showModal, setShowModal] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
   const [form, setForm] = useState<any>(emptyForm("Expense"));
+  const [creditors, setCreditors] = useState<any[]>([]);
 
   useEffect(() => {
     setDayVal(todayStr());
@@ -61,6 +62,14 @@ function ShopStatementContent() {
     });
     return () => { u1(); u2(); };
   }, [shop]);
+
+  // দেনার খাতার নামগুলো (পাওনাদার/লোন), "পেমেন্ট দিলাম" ফর্মে বাছার জন্য
+  useEffect(() => {
+    const unsub = onSnapshot(query(collection(db, "shop_statements"), where("type", "==", "Creditor")), (snap) => {
+      setCreditors(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, []);
 
   // ---------- হিসাব ----------
   const inPeriod = (iso: string) => {
@@ -93,7 +102,7 @@ function ShopStatementContent() {
   const openNew = (type: string) => { setForm(emptyForm(type)); setIsEdit(false); setShowModal(true); };
 
   const openEdit = (st: any) => {
-    setForm({ id: st.id, type: st.type, category: st.category || "Other", title: st.title || "", note: st.note || "", amount: String(st.amount ?? ""), date: toDateInput(st.date), origDate: toDateInput(st.date) });
+    setForm({ id: st.id, type: st.type, category: st.category || "Other", title: st.title || "", note: st.note || "", amount: String(st.amount ?? ""), creditorId: st.creditorId || "", date: toDateInput(st.date), origDate: toDateInput(st.date) });
     setIsEdit(true); setShowModal(true);
   };
 
@@ -105,7 +114,7 @@ function ShopStatementContent() {
     const title = form.title.trim();
     if (form.type === "PaidOut" && !title) return alert("কাকে দিলেন তা লিখুন!");
     if (form.type === "Transfer" && !title) return alert("কোন অ্যাকাউন্টে গেল তা লিখুন!");
-    const data = { type: form.type, category: form.type === "Expense" ? form.category : "", title, note: form.note.trim(), amount };
+    const data = { type: form.type, category: form.type === "Expense" ? form.category : "", title, note: form.note.trim(), amount, ...(form.type === "PaidOut" ? { creditorId: form.creditorId || "" } : {}) };
     try {
       if (isEdit) {
         await updateDoc(doc(db, "shop_statements", form.id), { ...data, ...(form.date !== form.origDate ? { date: dateToIso(form.date) } : {}) });
@@ -304,7 +313,17 @@ function ShopStatementContent() {
 
               {form.type === "PaidOut" && (
                 <>
-                  <div><label className="text-xs font-medium">কাকে দিলেন (নাম)</label><input required className="w-full border p-2 rounded" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} /></div>
+                  {creditors.length > 0 && (
+                    <div>
+                      <label className="text-xs font-medium">দেনার খাতার কাউকে শোধ করছেন? (না হলে ফাঁকা রাখুন)</label>
+                      <select className="w-full border p-2 rounded" value={form.creditorId} onChange={e => { const c = creditors.find(x => x.id === e.target.value); setForm({ ...form, creditorId: e.target.value, title: c ? c.name : form.title }); }}>
+                        <option value="">-- না, অন্য কাউকে দিলাম --</option>
+                        {creditors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                      {form.creditorId && <p className="text-[11px] text-green-700 mt-1">এর দেনা নিজে থেকে কমে যাবে।</p>}
+                    </div>
+                  )}
+                  <div><label className="text-xs font-medium">কাকে দিলেন (নাম)</label><input required readOnly={!!form.creditorId} className={`w-full border p-2 rounded ${form.creditorId ? "bg-gray-100 text-gray-600" : ""}`} value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} /></div>
                   <div><label className="text-xs font-medium">কী বাবদ (না লিখলেও চলবে)</label><input className="w-full border p-2 rounded" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} /></div>
                 </>
               )}
