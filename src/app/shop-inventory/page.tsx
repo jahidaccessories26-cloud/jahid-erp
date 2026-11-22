@@ -20,7 +20,7 @@ export default function ShopInventoryPage() {
   const [categoryFilter, setCategoryFilter] = useState("All");
 
   const [editingItem, setEditingItem] = useState<any>(null);
-  const [editData, setEditData] = useState({ productName: "", category: "", size: "", color: "", stock: 0, costPrice: 0 });
+  const [editData, setEditData] = useState({ productName: "", category: "", size: "", color: "", stock: 0, costPrice: 0, salePrice: 0 });
 
   // ইউজার চেক
   useEffect(() => {
@@ -152,7 +152,8 @@ export default function ShopInventoryPage() {
       size: item.size || "",
       color: item.color || "",
       stock: item.stock || 0,
-      costPrice: item.costPrice || 0
+      costPrice: item.costPrice || 0,
+      salePrice: item.salePrice || 0
     });
   };
 
@@ -162,7 +163,7 @@ export default function ShopInventoryPage() {
     try {
       const invRef = doc(db, "shop_inventories", editingItem.id);
       await updateDoc(invRef, { 
-        productName: editData.productName, category: editData.category, size: editData.size, color: editData.color, stock: Number(editData.stock), costPrice: Number(editData.costPrice)
+        productName: editData.productName, category: editData.category, size: editData.size, color: editData.color, stock: Number(editData.stock), costPrice: Number(editData.costPrice), salePrice: Number(editData.salePrice || 0)
       });
       setEditingItem(null);
       alert("Success: প্রোডাক্ট আপডেট হয়েছে!");
@@ -251,6 +252,7 @@ export default function ShopInventoryPage() {
                   <td className="px-3 py-3">
                     <div className="font-bold text-brand-navy text-xs md:text-sm">{item.productName}</div>
                     <div className="text-[10px] text-gray-500 mb-1">{item.category}</div>
+                    <div className="text-[10px] text-gray-500 mb-1">কেনা ৳{item.costPrice || 0} • বিক্রি {item.salePrice ? "৳" + item.salePrice : "—"}</div>
                     <div className="text-[10px] text-gray-700 bg-gray-100 inline-block px-1.5 py-0.5 rounded">
                       {item.size && item.size !== "Unknown" ? item.size : ""} 
                       {item.color && item.color !== "Unknown" ? ` / ${item.color}` : ""}
@@ -304,12 +306,16 @@ export default function ShopInventoryPage() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-medium mb-1">Stock</label>
-                  <input required type="number" className="w-full border p-2 rounded-lg text-lg font-bold" value={editData.stock} onChange={(e) => setEditData({...editData, stock: Number(e.target.value)})} />
+                  <input required type="number" step="any" className="w-full border p-2 rounded-lg text-lg font-bold" value={editData.stock} onChange={(e) => setEditData({...editData, stock: Number(e.target.value)})} />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium mb-1">Cost Price (৳)</label>
-                  <input required type="number" className="w-full border p-2 rounded-lg text-sm" value={editData.costPrice} onChange={(e) => setEditData({...editData, costPrice: Number(e.target.value)})} />
+                  <label className="block text-xs font-medium mb-1">কেনা দাম (৳)</label>
+                  <input required type="number" step="any" className="w-full border p-2 rounded-lg text-sm" value={editData.costPrice} onChange={(e) => setEditData({...editData, costPrice: Number(e.target.value)})} />
                 </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">বিক্রি দাম (৳) — বিক্রির সময় এই দাম বসবে</label>
+                <input type="number" step="any" className="w-full border p-2 rounded-lg text-lg font-bold text-green-600" value={editData.salePrice} onChange={(e) => setEditData({...editData, salePrice: Number(e.target.value)})} />
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t mt-2">
