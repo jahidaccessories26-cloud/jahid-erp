@@ -10,6 +10,9 @@ import { Package, Search, Edit, X, PlusCircle, ShoppingCart, Trash2, Factory, Hi
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
+// দশমিকের গোলমাল (যেমন 232.89999999999998) এড়াতে ৩ ঘর পর্যন্ত গোল করা হয়
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
 export default function WarehousePage() {
   const [products, setProducts] = useState<any[]>([]);
   const [shops, setShops] = useState<any[]>([]);
@@ -197,54 +200,77 @@ export default function WarehousePage() {
 
   const removeFromCart = (index: number) => setCart(cart.filter((_, i) => i !== index));
 
+  // ✅ সব আইটেম একসাথে (atomic): হয় সব হবে, নয়তো কিছুই হবে না। মাঝপথে থেমে স্টক হারাবে না।
   const handleBulkTransfer = async () => {
     if (cart.length === 0 || !selectedShop) { setMessage("Error: কার্টে আইটেম নেই বা দোকান সিলেক্ট করা হয়নি!"); return; }
     const invalidItem = cart.find(item => Number(item.qty) <= 0);
     if (invalidItem) { setMessage(`Error: ${invalidItem.name}-এর পরিমাণ সঠিকভাবে দিন!`); return; }
 
     try {
-      for (const item of cart) {
-        if (Number(item.qty) > item.maxStock) { setMessage(`Error: ${item.name}-এর স্টক পর্যাপ্ত নয়!`); return; }
-        const product = products.find(p => p.id === item.productId);
-        const variation = product.variations[item.varIndex];
-        const qty = Number(item.qty);
-        const totalPrice = qty * (variation.costPrice || 0);
-
-        const updatedVariations = [...product.variations];
-        updatedVariations[item.varIndex].stock -= qty;
-        await updateDoc(doc(db, "products", product.id), { variations: updatedVariations });
-
-        const shopInvId = `${selectedShop}_${product.id}_${variation.size}_${variation.color}`.replace(/\s+/g, '_');
-        const shopInvRef = doc(db, "shop_inventories", shopInvId);
-        const shopInvSnap = await getDoc(shopInvRef);
-
-        if (shopInvSnap.exists()) {
-          await updateDoc(shopInvRef, { stock: increment(qty) });
-        } else {
-          await setDoc(shopInvRef, {
-            shop: selectedShop, productName: product.name, category: product.category,
-            size: variation.size, color: variation.color, stock: qty, costPrice: variation.costPrice || 0
-          });
+      await runTransaction(db, async (transaction) => {
+        // ১. আগে সব পড়া (ডেটাবেস থেকে একদম সর্বশেষ স্টক)
+        const prodIds = Array.from(new Set(cart.map(c => c.productId)));
+        const work: any = {};
+        for (const id of prodIds) {
+          const snap = await transaction.get(doc(db, "products", id));
+          if (!snap.exists()) throw new Error("একটি প্রোডাক্ট খুঁজে পাওয়া যায়নি!");
+          const data: any = snap.data();
+          work[id] = { ...data, variations: (data.variations || []).map((v: any) => ({ ...v })) };
         }
 
-        await addDoc(collection(db, "stock_logs"), {
-          shop: selectedShop,
-          productId: product.id,               // ✅ future-proof edit/delete
-          productName: product.name,
-          size: variation.size,
-          color: variation.color,
-          quantity: qty,
-          totalPrice: totalPrice,
-          type: "Warehouse Transfer",
-          transferredBy: currentUserName,
-          date: new Date().toISOString(),
-          createdAt: new Date().toISOString()
-        });
-      }
+        const lines: any[] = [];
+        for (const item of cart) {
+          const qty = Number(item.qty);
+          const product = work[item.productId];
+          const vi = product.variations.findIndex((v: any) => v.size === item.size && v.color === item.color);
+          if (vi < 0) throw new Error(`${item.name} (${item.size}/${item.color}) খুঁজে পাওয়া যায়নি!`);
+          const variation = product.variations[vi];
+          const have = Number(variation.stock || 0);
+          if (have < qty) throw new Error(`${item.name} (${item.size}/${item.color})-এর স্টক পর্যাপ্ত নয়! আছে ${have} পিস`);
+          variation.stock = round3(have - qty);
+
+          const shopInvId = `${selectedShop}_${item.productId}_${variation.size}_${variation.color}`.replace(/\s+/g, "_");
+          const shopInvRef = doc(db, "shop_inventories", shopInvId);
+          const shopInvSnap = await transaction.get(shopInvRef);
+          lines.push({ item, qty, product, variation, shopInvRef, shopInvSnap });
+        }
+
+        // ২. তারপর সব লেখা
+        for (const id of prodIds) {
+          transaction.update(doc(db, "products", id), { variations: work[id].variations });
+        }
+        const now = new Date().toISOString();
+        for (const l of lines) {
+          if (l.shopInvSnap.exists()) {
+            transaction.update(l.shopInvRef, { stock: round3(Number(l.shopInvSnap.data().stock || 0) + l.qty) });
+          } else {
+            transaction.set(l.shopInvRef, {
+              shop: selectedShop, productName: l.product.name, category: l.product.category || "",
+              size: l.variation.size, color: l.variation.color, stock: l.qty, costPrice: l.variation.costPrice || 0
+            });
+          }
+          transaction.set(doc(collection(db, "stock_logs")), {
+            shop: selectedShop,
+            productId: l.item.productId,
+            productName: l.product.name,
+            size: l.variation.size,
+            color: l.variation.color,
+            quantity: l.qty,
+            totalPrice: l.qty * (l.variation.costPrice || 0),
+            type: "Warehouse Transfer",
+            transferredBy: currentUserName,
+            date: now,
+            createdAt: now
+          });
+        }
+      });
       setMessage(`Success: ${cart.length} টি আইটেম ${selectedShop}-এ পাঠানো হয়েছে!`);
       setCart([]);
       setCartOpen(false);
-    } catch (error) { setMessage("ট্রান্সফার করতে সমস্যা হয়েছে!"); }
+    } catch (error: any) {
+      console.error(error);
+      setMessage(`Error: ${error?.message || "ট্রান্সফার করতে সমস্যা হয়েছে!"}`);
+    }
   };
 
   const handleProduction = async (e: React.FormEvent) => {
@@ -264,7 +290,7 @@ export default function WarehousePage() {
         let updatedVariations = [...(existingProduct.variations || [])];
         const existingIndex = updatedVariations.findIndex(v => v.size === size && v.color === color);
         if (existingIndex >= 0) {
-          updatedVariations[existingIndex].stock += numQty;
+          updatedVariations[existingIndex].stock = round3(Number(updatedVariations[existingIndex].stock || 0) + numQty);
           if (numCost > 0) updatedVariations[existingIndex].costPrice = numCost;
         } else {
           updatedVariations.push({ size, color, stock: numQty, costPrice: numCost });
@@ -340,7 +366,7 @@ export default function WarehousePage() {
   };
 
   // ------------------------------------------------------------------
-  // EDIT history log (atomic: products + shop_inventories + stock_logs)
+  // EDIT history log (atomic: আগে সব পড়া, তারপর সব লেখা)
   // ------------------------------------------------------------------
   const handleLogEdit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -353,36 +379,56 @@ export default function WarehousePage() {
 
     try {
       await runTransaction(db, async (transaction) => {
-        // ১. লগ রিড
+        // ১. পড়া
         const logRef = doc(db, "stock_logs", logId);
         const logSnap = await transaction.get(logRef);
-        if (!logSnap.exists()) throw new Error("Stock log not found");
-        const logData = logSnap.data();
+        if (!logSnap.exists()) throw new Error("লেনদেনটি খুঁজে পাওয়া যায়নি!");
+        const logData: any = logSnap.data();
 
         const diffQty = Number(newQty) - Number(logData.quantity); // + = বাড়ানো, - = কমানো
 
-        // ২. প্রোডাক্ট খোঁজা
         const { product, productRef } = await resolveProductInTransaction(transaction, logData);
-        if (!product) throw new Error("Product not found");
+        if (!product) throw new Error("প্রোডাক্ট খুঁজে পাওয়া যায়নি!");
 
-        const variations = [...(product.variations || [])];
+        const variations = (product.variations || []).map((v: any) => ({ ...v }));
         const varIndex = variations.findIndex((v: any) => v.size === logData.size && v.color === logData.color);
-        if (varIndex < 0) throw new Error("Variation not found");
+        if (varIndex < 0) throw new Error("সাইজ/রঙ খুঁজে পাওয়া যায়নি!");
+
+        let shopInvRef: any = null;
+        let shopInvSnap: any = null;
+        if (logData.type === "Warehouse Transfer") {
+          const shopInvId = `${logData.shop}_${product.id}_${logData.size}_${logData.color}`.replace(/\s+/g, "_");
+          shopInvRef = doc(db, "shop_inventories", shopInvId);
+          shopInvSnap = await transaction.get(shopInvRef);
+        }
+
+        // ২. যাচাই ও হিসাব
+        const whCurrent = Number(variations[varIndex].stock || 0);
+        let newShopStock = 0;
 
         if (logData.type === "Warehouse Transfer") {
           // ওয়্যারহাউস: diff>0 হলে স্টক কমবে, diff<0 হলে বাড়বে
-          const newWhStock = (variations[varIndex].stock || 0) - diffQty;
-          if (newWhStock < 0) throw new Error("Warehouse stock insufficient for this increase");
+          const newWhStock = round3(whCurrent - diffQty);
+          if (newWhStock < 0) throw new Error(`ওয়্যারহাউসে এখন মাত্র ${whCurrent} পিস আছে, তাই পরিমাণ এত বাড়ানো যাবে না।`);
           variations[varIndex].stock = newWhStock;
-          transaction.update(productRef, { variations });
 
-          // দোকান: diff>0 হলে বাড়বে, diff<0 হলে কমবে
-          const shopInvId = `${logData.shop}_${product.id}_${logData.size}_${logData.color}`.replace(/\s+/g, "_");
-          const shopInvRef = doc(db, "shop_inventories", shopInvId);
-          const shopInvSnap = await transaction.get(shopInvRef);
+          // দোকান: diff>0 হলে বাড়বে, diff<0 হলে কমবে (বিক্রি হয়ে গেলে কমানো যাবে না)
+          const shopCurrent = shopInvSnap.exists() ? Number(shopInvSnap.data().stock || 0) : 0;
+          newShopStock = round3(shopCurrent + diffQty);
+          if (newShopStock < 0) throw new Error(`দোকানে এখন মাত্র ${shopCurrent} পিস আছে (বাকিটা বিক্রি হয়ে গেছে)। তাই পরিমাণ এত কমানো যাবে না।`);
+        } else if (logData.type === "Production Inward") {
+          // প্রোডাকশন: diff>0 হলে ওয়্যারহাউস স্টক বাড়বে, diff<0 হলে কমবে
+          const newWhStock = round3(whCurrent + diffQty);
+          if (newWhStock < 0) throw new Error(`ওয়্যারহাউসে এখন মাত্র ${whCurrent} পিস আছে (বাকিটা দোকানে চলে গেছে)। তাই পরিমাণ এত কমানো যাবে না।`);
+          variations[varIndex].stock = newWhStock;
+        }
 
+        // ৩. লেখা
+        transaction.update(productRef, { variations });
+
+        if (logData.type === "Warehouse Transfer") {
           if (shopInvSnap.exists()) {
-            transaction.update(shopInvRef, { stock: increment(diffQty) });
+            transaction.update(shopInvRef, { stock: newShopStock });
           } else if (diffQty > 0) {
             transaction.set(shopInvRef, {
               shop: logData.shop,
@@ -390,19 +436,12 @@ export default function WarehousePage() {
               category: product.category || "",
               size: logData.size,
               color: logData.color,
-              stock: diffQty,
+              stock: newShopStock,
               costPrice: variations[varIndex].costPrice || 0,
             });
           }
-        } else if (logData.type === "Production Inward") {
-          // প্রোডাকশন: diff>0 হলে ওয়্যারহাউস স্টক বাড়বে, diff<0 হলে কমবে
-          const newWhStock = (variations[varIndex].stock || 0) + diffQty;
-          if (newWhStock < 0) throw new Error("Warehouse stock insufficient for this decrease");
-          variations[varIndex].stock = newWhStock;
-          transaction.update(productRef, { variations });
         }
 
-        // ৩. লগ আপডেট
         transaction.update(logRef, {
           quantity: Number(newQty),
           totalPrice: Number(newTotalPrice),
@@ -418,7 +457,7 @@ export default function WarehousePage() {
   };
 
   // ------------------------------------------------------------------
-  // DELETE history log (atomic)
+  // DELETE history log (atomic: আগে সব পড়া, তারপর সব লেখা)
   // ------------------------------------------------------------------
   const handleLogDelete = async () => {
     if (!confirm("আপনি কি নিশ্চিত এই লেনদেনটি ডিলিট করতে চান? (ডিলিট করলে স্টক আগের অবস্থায় ফিরে যাবে)")) return;
@@ -427,44 +466,47 @@ export default function WarehousePage() {
 
     try {
       await runTransaction(db, async (transaction) => {
+        // ১. পড়া
         const logRef = doc(db, "stock_logs", logId);
         const logSnap = await transaction.get(logRef);
-        if (!logSnap.exists()) throw new Error("Stock log not found");
-        const logData = logSnap.data();
+        if (!logSnap.exists()) throw new Error("লেনদেনটি খুঁজে পাওয়া যায়নি!");
+        const logData: any = logSnap.data();
         const qty = Number(logData.quantity);
 
         const { product, productRef } = await resolveProductInTransaction(transaction, logData);
+        if (!product) throw new Error("প্রোডাক্ট খুঁজে পাওয়া যায়নি!");
+
+        const variations = (product.variations || []).map((v: any) => ({ ...v }));
+        const varIndex = variations.findIndex((v: any) => v.size === logData.size && v.color === logData.color);
+        if (varIndex < 0) throw new Error("সাইজ/রঙ খুঁজে পাওয়া যায়নি!");
+        const whCurrent = Number(variations[varIndex].stock || 0);
 
         if (logData.type === "Warehouse Transfer") {
-          if (!product) throw new Error("Product not found");
-
-          // ওয়্যারহাউস স্টকে ফেরত যোগ
-          const variations = [...(product.variations || [])];
-          const varIndex = variations.findIndex((v: any) => v.size === logData.size && v.color === logData.color);
-          if (varIndex < 0) throw new Error("Variation not found");
-          variations[varIndex].stock = (variations[varIndex].stock || 0) + qty;
-          transaction.update(productRef, { variations });
-
-          // দোকানের স্টক থেকে বিয়োগ
           const shopInvId = `${logData.shop}_${product.id}_${logData.size}_${logData.color}`.replace(/\s+/g, "_");
           const shopInvRef = doc(db, "shop_inventories", shopInvId);
           const shopInvSnap = await transaction.get(shopInvRef);
-          if (shopInvSnap.exists()) {
-            const current = shopInvSnap.data().stock || 0;
-            transaction.update(shopInvRef, { stock: Math.max(0, current - qty) });
-          }
-        } else if (logData.type === "Production Inward") {
-          if (!product) throw new Error("Product not found");
 
-          // প্রোডাকশন হলে ওয়্যারহাউস থেকে বাদ
-          const variations = [...(product.variations || [])];
-          const varIndex = variations.findIndex((v: any) => v.size === logData.size && v.color === logData.color);
-          if (varIndex < 0) throw new Error("Variation not found");
-          variations[varIndex].stock = Math.max(0, (variations[varIndex].stock || 0) - qty);
+          // ২. যাচাই: দোকানে বিক্রি হয়ে গেলে ডিলিট করা যাবে না (নইলে স্টক ফুলে যায়)
+          const shopCurrent = shopInvSnap.exists() ? Number(shopInvSnap.data().stock || 0) : 0;
+          if (shopCurrent < qty) {
+            throw new Error(`দোকানে এখন মাত্র ${shopCurrent} পিস আছে (বাকিটা বিক্রি হয়ে গেছে)। তাই এই ট্রান্সফার ডিলিট করা যাবে না।`);
+          }
+
+          // ৩. লেখা
+          variations[varIndex].stock = round3(whCurrent + qty);
+          transaction.update(productRef, { variations });
+          transaction.update(shopInvRef, { stock: round3(shopCurrent - qty) });
+        } else if (logData.type === "Production Inward") {
+          // ২. যাচাই: মাল দোকানে চলে গেলে ডিলিট করা যাবে না
+          if (whCurrent < qty) {
+            throw new Error(`ওয়্যারহাউসে এখন মাত্র ${whCurrent} পিস আছে (বাকিটা দোকানে চলে গেছে)। তাই এই এন্ট্রি ডিলিট করা যাবে না।`);
+          }
+
+          // ৩. লেখা
+          variations[varIndex].stock = round3(whCurrent - qty);
           transaction.update(productRef, { variations });
         }
 
-        // লগ ডিলিট
         transaction.delete(logRef);
       });
 
@@ -701,8 +743,8 @@ export default function WarehousePage() {
                 <div><label className="block text-xs font-medium mb-1">Size</label><input required placeholder="e.g. 5 MM" className="w-full border p-2 rounded-lg text-sm" value={prodData.size} onChange={(e) => setProdData({ ...prodData, size: e.target.value })} /></div>
                 <div><label className="block text-xs font-medium mb-1">Color</label><input required placeholder="e.g. Black" className="w-full border p-2 rounded-lg text-sm" value={prodData.color} onChange={(e) => setProdData({ ...prodData, color: e.target.value })} /></div>
               </div>
-              <div><label className="block text-xs font-medium mb-1">Production Quantity (pcs)</label><input required type="number" min="1" className="w-full border p-2 rounded-lg text-sm font-bold" value={prodData.qty} onChange={(e) => setProdData({ ...prodData, qty: e.target.value })} /></div>
-              <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input type="number" min="0" className="w-full border p-2 rounded-lg text-sm" value={prodData.costPrice} onChange={(e) => setProdData({ ...prodData, costPrice: e.target.value })} /></div>
+              <div><label className="block text-xs font-medium mb-1">Production Quantity (pcs)</label><input required type="number" min="0" step="any" className="w-full border p-2 rounded-lg text-sm font-bold" value={prodData.qty} onChange={(e) => setProdData({ ...prodData, qty: e.target.value })} /></div>
+              <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input type="number" min="0" step="any" className="w-full border p-2 rounded-lg text-sm" value={prodData.costPrice} onChange={(e) => setProdData({ ...prodData, costPrice: e.target.value })} /></div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowProdModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm">Add to Stock</button>
@@ -718,8 +760,8 @@ export default function WarehousePage() {
           <div className="bg-white p-5 rounded-xl shadow-2xl w-full max-w-sm">
             <h3 className="text-lg font-bold text-brand-navy mb-4">Edit Warehouse Stock</h3>
             <form onSubmit={handleEdit} className="space-y-3">
-              <div><label className="block text-xs font-medium mb-1">New Stock</label><input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newStock} onChange={(e) => setEditData({ ...editData, newStock: Number(e.target.value) })} /></div>
-              <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input required type="number" min="0" className="w-full border p-2 rounded-lg font-bold" value={editData.newPrice} onChange={(e) => setEditData({ ...editData, newPrice: Number(e.target.value) })} /></div>
+              <div><label className="block text-xs font-medium mb-1">New Stock</label><input required type="number" min="0" step="any" className="w-full border p-2 rounded-lg font-bold" value={editData.newStock} onChange={(e) => setEditData({ ...editData, newStock: Number(e.target.value) })} /></div>
+              <div><label className="block text-xs font-medium mb-1">Cost Price (৳)</label><input required type="number" min="0" step="any" className="w-full border p-2 rounded-lg font-bold" value={editData.newPrice} onChange={(e) => setEditData({ ...editData, newPrice: Number(e.target.value) })} /></div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setShowEditModal(false)} className="px-4 py-2 border rounded-lg text-sm">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded-lg text-sm">Save</button>
@@ -742,7 +784,8 @@ export default function WarehousePage() {
                 <input
                   required
                   type="number"
-                  min="1"
+                  min="0"
+                  step="any"
                   className="w-full border p-2 rounded-lg font-bold"
                   value={editLogData.newQty}
                   onChange={(e) => setEditLogData({ ...editLogData, newQty: Number(e.target.value) })}
@@ -755,6 +798,7 @@ export default function WarehousePage() {
                   required
                   type="number"
                   min="0"
+                  step="any"
                   className="w-full border p-2 rounded-lg font-bold"
                   value={editLogData.newTotalPrice}
                   onChange={(e) => setEditLogData({ ...editLogData, newTotalPrice: Number(e.target.value) })}
