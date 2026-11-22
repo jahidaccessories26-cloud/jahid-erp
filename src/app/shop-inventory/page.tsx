@@ -19,6 +19,10 @@ export default function ShopInventoryPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
 
+  // ড্যাশবোর্ডের লিংক থেকে আসা দোকানের নাম (?shop=...)
+  const [paramShop] = useState(() => typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("shop") || "") : "");
+  useEffect(() => { if (paramShop === "Warehouse") router.replace("/warehouse"); }, [paramShop]);
+
   const [editingItem, setEditingItem] = useState<any>(null);
   const [editData, setEditData] = useState({ productName: "", category: "", size: "", color: "", stock: 0, costPrice: 0, salePrice: 0 });
 
@@ -46,7 +50,7 @@ export default function ShopInventoryPage() {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setShops(data);
       if (data.length > 0 && !selectedShop && userRole === "admin") {
-        setSelectedShop(data[0].name);
+        setSelectedShop(paramShop && data.some((d: any) => d.name === paramShop) ? paramShop : data[0].name);
       }
     });
 
@@ -55,7 +59,7 @@ export default function ShopInventoryPage() {
     });
 
     return () => { unsubShops(); unsubInv(); };
-  }, [selectedShop, userRole]);
+  }, [selectedShop, userRole, paramShop]);
 
   const shopItems = shopInventories.filter(item => item.shop === selectedShop);
   const categories = Array.from(new Set(shopItems.map(item => item.category).filter(Boolean)));
@@ -170,6 +174,15 @@ export default function ShopInventoryPage() {
     } catch (error) { alert("আপডেট করতে সমস্যা হয়েছে!"); }
   };
 
+  // তালিকা থেকেই সরাসরি বিক্রি দাম বসানো (ঘর থেকে বের হলেই সেভ হয়)
+  const quickSavePrice = async (item: any, value: string) => {
+    const newPrice = Number(value || 0);
+    if (newPrice === Number(item.salePrice || 0)) return;
+    try {
+      await updateDoc(doc(db, "shop_inventories", item.id), { salePrice: newPrice });
+    } catch (error) { alert("বিক্রি দাম সেভ করতে সমস্যা হয়েছে!"); }
+  };
+
   const handleDelete = async (id: string, name: string) => {
     if (window.confirm(`আপনি কি নিশ্চিত "${name}" দোকানের স্টক থেকে ডিলিট করতে চান?`)) {
       try {
@@ -252,7 +265,11 @@ export default function ShopInventoryPage() {
                   <td className="px-3 py-3">
                     <div className="font-bold text-brand-navy text-xs md:text-sm">{item.productName}</div>
                     <div className="text-[10px] text-gray-500 mb-1">{item.category}</div>
-                    <div className="text-[10px] text-gray-500 mb-1">কেনা ৳{item.costPrice || 0} • বিক্রি {item.salePrice ? "৳" + item.salePrice : "—"}</div>
+                    <div className="flex items-center gap-1 text-[10px] text-gray-500 mb-1">
+                      <span>কেনা ৳{item.costPrice || 0}</span>
+                      <span>• বিক্রি ৳</span>
+                      <input key={`${item.id}_${item.salePrice || 0}`} type="number" step="any" inputMode="decimal" placeholder="দাম" defaultValue={item.salePrice || ""} onBlur={(e) => quickSavePrice(item, e.target.value)} className="w-16 border rounded px-1 py-0.5 text-[11px] font-bold text-green-700" />
+                    </div>
                     <div className="text-[10px] text-gray-700 bg-gray-100 inline-block px-1.5 py-0.5 rounded">
                       {item.size && item.size !== "Unknown" ? item.size : ""} 
                       {item.color && item.color !== "Unknown" ? ` / ${item.color}` : ""}
