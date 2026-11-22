@@ -5,13 +5,14 @@ import { usePathname, useRouter } from "next/navigation";
 import { auth, db } from "../lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
-import { Menu, X, LayoutDashboard, Box, Package, Upload, Store, FileText, Users, ShoppingCart, Database, LogOut } from "lucide-react";
+import { Menu, X, LayoutDashboard, Box, Package, Upload, Store, FileText, Users, ShoppingCart, Database, LogOut, Wallet } from "lucide-react";
 import "./globals.css"; // ✅ CSS ইমপোর্ট
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [userRole, setUserRole] = useState("");
   const [userName, setUserName] = useState("");
+  const [activeShop, setActiveShop] = useState("");
   const pathname = usePathname();
   const router = useRouter();
 
@@ -37,12 +38,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     return () => unsub();
   }, [pathname, router]);
 
+  // শেষ যে দোকানের ড্যাশবোর্ড খোলা হয়েছিল, সেটা সাইডবারের লিংকে বসানো হয়
+  useEffect(() => {
+    try { setActiveShop(localStorage.getItem("activeShop") || ""); } catch (e) {}
+  }, [pathname]);
+
   const navLinks = [
     { name: "Dashboard", href: "/", icon: LayoutDashboard },
-    { name: "Sales", href: "/sales", icon: ShoppingCart },
+    { name: "Sales", href: "/sales", icon: ShoppingCart, needsShop: true },
     { name: "Buyers", href: "/buyer-statement", icon: Users },
     { name: "Samples", href: "/samples", icon: Box },
-    { name: "Shop Inventory", href: "/shop-inventory", icon: Package },
+    { name: "Shop Inventory", href: "/shop-inventory", icon: Package, needsShop: true },
+    { name: "Shop Accounts", href: "/shop-statement", icon: FileText, needsShop: true },
+    { name: "Daily Report", href: "/daily-report", icon: Wallet, adminOnly: true },
     { name: "Warehouse", href: "/warehouse", icon: Store },
     { name: "Products", href: "/products", icon: Database },
     { name: "Categories", href: "/categories", icon: FileText },
@@ -72,10 +80,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </div>
               
               <div className="p-4 space-y-2 overflow-y-auto h-[calc(100vh-140px)]">
-                {navLinks.map((link) => {
+                {navLinks.filter((link) => !link.adminOnly || userRole === "admin").map((link) => {
                   const Icon = link.icon;
+                  const href = link.needsShop && activeShop ? `${link.href}?shop=${encodeURIComponent(activeShop)}` : link.href;
                   return (
-                    <Link key={link.name} href={link.href} onClick={() => setIsSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition ${pathname === link.href ? "bg-white/20 font-bold" : ""}`}>
+                    <Link key={link.name} href={href} onClick={() => setIsSidebarOpen(false)} className={`flex items-center gap-3 p-3 rounded-lg hover:bg-white/10 transition ${pathname === link.href ? "bg-white/20 font-bold" : ""}`}>
                       <Icon size={20} /> {link.name}
                     </Link>
                   );
