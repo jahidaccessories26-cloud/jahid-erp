@@ -23,7 +23,7 @@ function SalesHistoryContent() {
 
   // নতুন সেল স্টেট
   const [showAddSale, setShowAddSale] = useState(false);
-  const [newSaleData, setNewSaleData] = useState({ productId: "", productName: "", qty: "", salePrice: "", amount: "" });
+  const [newSaleData, setNewSaleData] = useState({ productId: "", productName: "", qty: "", salePrice: "", amount: "", costPrice: 0 });
   const [prodSearch, setProdSearch] = useState("");
   const [showList, setShowList] = useState(false);
 
@@ -68,10 +68,10 @@ function SalesHistoryContent() {
       
       await updateDoc(doc(db, "shop_inventories", prod.id), { stock: increment(-Number(newSaleData.qty)) });
       await addDoc(collection(db, "shop_statements"), {
-        shop: shopName, type: "Sale", productId: prod.id, title: prod.productName, qty: Number(newSaleData.qty), price: Number(newSaleData.salePrice), amount: Number(newSaleData.amount), date: new Date().toISOString()
+        shop: shopName, type: "Sale", productId: prod.id, costPrice: Number(prod.costPrice || 0), title: prod.productName, qty: Number(newSaleData.qty), price: Number(newSaleData.salePrice), amount: Number(newSaleData.amount), date: new Date().toISOString()
       });
       
-      setShowAddSale(false); setNewSaleData({ productId: "", productName: "", qty: "", salePrice: "", amount: "" }); setProdSearch(""); setShowList(false);
+      setShowAddSale(false); setNewSaleData({ productId: "", productName: "", qty: "", salePrice: "", amount: "", costPrice: 0 }); setProdSearch(""); setShowList(false);
       alert("নতুন সেল সেভ হয়েছে!");
     } catch (error) { alert("সমস্যা হয়েছে!"); }
   };
@@ -225,7 +225,7 @@ function SalesHistoryContent() {
                 {showList && prodSearch && (
                   <div className="w-full max-h-52 overflow-y-auto border rounded bg-white">
                     {searchedProducts.map(p => (
-                      <div key={p.id} onClick={() => { setNewSaleData({...newSaleData, productId: p.id, productName: p.productName, salePrice: p.costPrice.toString()}); setProdSearch(p.productName); setShowList(false); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50 flex justify-between">
+                      <div key={p.id} onClick={() => { setNewSaleData({...newSaleData, productId: p.id, productName: p.productName, salePrice: p.salePrice ? String(p.salePrice) : "", costPrice: Number(p.costPrice || 0)}); setProdSearch(p.productName); setShowList(false); }} className="p-2 text-xs border-b cursor-pointer hover:bg-blue-50 flex justify-between">
                         <div>
                           <p>{p.productName}</p>
                           {(p.size || p.color) && <p className="text-[10px] text-gray-400">{[p.size, p.color].filter(Boolean).join(" • ")}</p>}
@@ -241,11 +241,16 @@ function SalesHistoryContent() {
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs font-bold text-gray-700">Quantity</label>
-                  <input required type="number" className="w-full border p-2 rounded" value={newSaleData.qty} onChange={e => setNewSaleData({...newSaleData, qty: e.target.value})} />
+                  <input required type="number" step="any" className="w-full border p-2 rounded" value={newSaleData.qty} onChange={e => setNewSaleData({...newSaleData, qty: e.target.value})} />
                 </div>
                 <div>
                   <label className="text-xs font-bold text-gray-700">Sale Price (৳)</label>
-                  <input required type="number" className="w-full border p-2 rounded" value={newSaleData.salePrice} onChange={e => setNewSaleData({...newSaleData, salePrice: e.target.value})} />
+                  <input required type="number" step="any" placeholder="বিক্রির দাম" className="w-full border p-2 rounded" value={newSaleData.salePrice} onChange={e => setNewSaleData({...newSaleData, salePrice: e.target.value})} />
+                  {newSaleData.productId && (
+                    <p className={`text-[11px] mt-1 ${Number(newSaleData.salePrice) > 0 && Number(newSaleData.salePrice) < Number(newSaleData.costPrice) ? "text-red-600 font-bold" : "text-gray-500"}`}>
+                      কেনা দাম: ৳{newSaleData.costPrice}{Number(newSaleData.salePrice) > 0 && Number(newSaleData.salePrice) < Number(newSaleData.costPrice) ? " — কেনা দামের চেয়ে কম, লস হবে!" : ""}
+                    </p>
+                  )}
                 </div>
               </div>
               <div>
@@ -270,10 +275,10 @@ function SalesHistoryContent() {
             <form onSubmit={handleUpdate} className="space-y-3">
               <div><label className="text-xs">Product</label><input readOnly className="w-full border p-2 rounded bg-gray-100 text-gray-600" value={editData.title} /></div>
               <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs">Quantity</label><input required type="number" className="w-full border p-2 rounded" value={editData.qty} onChange={e => setEditData({...editData, qty: Number(e.target.value), amount: Number(e.target.value) * Number(editData.price || 0)})} /></div>
-                <div><label className="text-xs">Sale Price</label><input required type="number" className="w-full border p-2 rounded" value={editData.price} onChange={e => setEditData({...editData, price: Number(e.target.value), amount: Number(editData.qty || 0) * Number(e.target.value)})} /></div>
+                <div><label className="text-xs">Quantity</label><input required type="number" step="any" className="w-full border p-2 rounded" value={editData.qty} onChange={e => setEditData({...editData, qty: Number(e.target.value), amount: Number(e.target.value) * Number(editData.price || 0)})} /></div>
+                <div><label className="text-xs">Sale Price</label><input required type="number" step="any" className="w-full border p-2 rounded" value={editData.price} onChange={e => setEditData({...editData, price: Number(e.target.value), amount: Number(editData.qty || 0) * Number(e.target.value)})} /></div>
               </div>
-              <div><label className="text-xs">Total Amount</label><input required type="number" className="w-full border p-2 rounded font-bold text-green-600" value={editData.amount} onChange={e => setEditData({...editData, amount: Number(e.target.value)})} /></div>
+              <div><label className="text-xs">Total Amount</label><input required type="number" step="any" className="w-full border p-2 rounded font-bold text-green-600" value={editData.amount} onChange={e => setEditData({...editData, amount: Number(e.target.value)})} /></div>
               <div className="flex justify-end gap-2 pt-2">
                 <button type="button" onClick={() => setEditingSale(null)} className="px-4 py-2 border rounded">Cancel</button>
                 <button type="submit" className="px-4 py-2 bg-brand-navy text-white rounded">Save</button>
