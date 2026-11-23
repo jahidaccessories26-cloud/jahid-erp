@@ -36,6 +36,7 @@ function ShopStatementContent() {
 
   const [statements, setStatements] = useState<any[]>([]);
   const [partyDocs, setPartyDocs] = useState<any[]>([]);
+  const [shopInv, setShopInv] = useState<any[]>([]);
 
   const [mode, setMode] = useState("day");
   const [dayVal, setDayVal] = useState(todayStr());
@@ -60,7 +61,10 @@ function ShopStatementContent() {
     const u2 = onSnapshot(query(collection(db, "buyer_orders"), where("shop", "==", shop)), (snap) => {
       setPartyDocs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
-    return () => { u1(); u2(); };
+    const u3 = onSnapshot(query(collection(db, "shop_inventories"), where("shop", "==", shop)), (snap) => {
+      setShopInv(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => { u1(); u2(); u3(); };
   }, [shop]);
 
   // দেনার খাতার নামগুলো (পাওনাদার/লোন), "পেমেন্ট দিলাম" ফর্মে বাছার জন্য
@@ -91,6 +95,27 @@ function ShopStatementContent() {
   const cashIn = sum(sales) + sum(partyPay);
   const cashOut = sum(expenses) + sum(paidOuts) + sum(transfers) + sum(purchases);
   const net = cashIn - cashOut;
+
+  // ---------- লাভ-লস ----------
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const invCost: any = {};
+  shopInv.forEach(i => { invCost[i.id] = Number(i.costPrice || 0); });
+  const unitCost = (t: any) => {
+    if (t.costPrice !== undefined && t.costPrice !== null) return Number(t.costPrice);
+    if (t.productId && invCost[t.productId] !== undefined) return invCost[t.productId];
+    return null;
+  };
+  let unknownCost = 0;
+  const costOf = (list: any[]) => list.reduce((s, t) => {
+    const c = unitCost(t);
+    if (c === null) { unknownCost++; return s; }
+    return s + c * Number(t.qty || 0);
+  }, 0);
+  const localCost = costOf(sales);
+  const partyCost = costOf(partyBill);
+  const revenue = sum(sales) + sum(partyBill);
+  const cogs = localCost + partyCost;
+  const profit = revenue - cogs - sum(expenses);
 
   const entries = [...expenses, ...paidOuts, ...transfers, ...purchases].sort((a, b) => new Date(b.date) - new Date(a.date));
 
@@ -157,7 +182,15 @@ function ShopStatementContent() {
       ["NET CASH", net],
       ["Party Sales Billed (credit, not cash)", sum(partyBill)],
     ];
-    autoTable(pdf, { head: [["Summary", "Amount (BDT)"]], body: summaryRows, startY: 28, styles: { fontSize: 9 }, columnStyles: { 1: { halign: "right" } } });
+    autoTable(pdf, {
+      head: [["Profit / Loss", "Amount (BDT)"]],
+      body: [
+        ["Local Sales", r2(sum(sales))], ["Party Sales (billed)", r2(sum(partyBill))], ["Total Sales", r2(revenue)],
+        ["Cost of goods sold", r2(cogs)], ["Expenses", r2(sum(expenses))], ["PROFIT / LOSS", r2(profit)],
+      ],
+      startY: 28, styles: { fontSize: 9 }, columnStyles: { 1: { halign: "right" } },
+    });
+    autoTable(pdf, { head: [["Cash Summary", "Amount (BDT)"]], body: summaryRows, startY: pdf.lastAutoTable.finalY + 8, styles: { fontSize: 9 }, columnStyles: { 1: { halign: "right" } } });
     let y = pdf.lastAutoTable.finalY + 10;
 
     const byDate = (list: any[]) => [...list].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -217,9 +250,27 @@ function ShopStatementContent() {
         </div>
       </div>
 
+      {/* লাভ-লস */}
+      <div className="bg-white rounded-xl border mb-4 overflow-hidden">
+        <p className="bg-gray-100 px-3 py-2 text-sm font-bold text-gray-700">{mode === "day" ? "দিনের" : "মাসের"} লাভ-লস: {periodLabel}</p>
+        <div className="p-3 space-y-1 text-sm">
+          <div className="flex justify-between"><span>লোকাল বিক্রি</span><b className="text-green-600">৳{r2(sum(sales))}</b></div>
+          <div className="flex justify-between"><span>পার্টি সেল (বিল)</span><b className="text-green-600">৳{r2(sum(partyBill))}</b></div>
+          <div className="flex justify-between border-t pt-1"><span className="font-bold">মোট বিক্রি</span><b>৳{r2(revenue)}</b></div>
+          <div className="flex justify-between pt-1"><span>বিক্রি হওয়া মালের কেনা দাম</span><b className="text-orange-600">− ৳{r2(cogs)}</b></div>
+          <div className="flex justify-between"><span>খরচ</span><b className="text-red-600">− ৳{r2(sum(expenses))}</b></div>
+        </div>
+        <div className={`px-3 py-3 flex justify-between items-center ${profit >= 0 ? "bg-green-50" : "bg-red-50"}`}>
+          <span className="font-bold text-brand-navy">{profit >= 0 ? "লাভ" : "লস"}</span>
+          <span className={`text-xl font-bold ${profit >= 0 ? "text-green-700" : "text-red-700"}`}>৳{r2(Math.abs(profit))}</span>
+        </div>
+        <p className="px-3 py-2 text-xs text-gray-500 border-t">খরচ ধরার আগে: লোকাল থেকে লাভ ৳{r2(sum(sales) - localCost)}, পার্টি সেল থেকে লাভ ৳{r2(sum(partyBill) - partyCost)}। পার্টি সেলের বিল ধরা হয়েছে (টাকা পেয়ে থাকুন বা না থাকুন)।</p>
+        {unknownCost > 0 && <p className="px-3 py-2 text-xs bg-yellow-100 text-yellow-800">{unknownCost} টি বিক্রির কেনা দাম জানা নেই, ওগুলো হিসাবে ধরা হয়নি।</p>}
+      </div>
+
       {/* এক নজরে হিসাব */}
       <div className="bg-white rounded-xl border mb-4 overflow-hidden">
-        <p className="bg-gray-100 px-3 py-2 text-sm font-bold text-gray-700">{mode === "day" ? "দিনের" : "মাসের"} হিসাব: {periodLabel}</p>
+        <p className="bg-gray-100 px-3 py-2 text-sm font-bold text-gray-700">{mode === "day" ? "দিনের" : "মাসের"} নগদ হিসাব: {periodLabel}</p>
         <div className="p-3 space-y-1 text-sm">
           <div className="flex justify-between"><span>লোকাল বিক্রি</span><b className="text-green-600">৳{sum(sales)}</b></div>
           <div className="flex justify-between"><span>পার্টির কাছ থেকে পাওয়া টাকা</span><b className="text-green-600">৳{sum(partyPay)}</b></div>
