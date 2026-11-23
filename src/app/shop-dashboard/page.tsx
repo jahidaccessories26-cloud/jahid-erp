@@ -51,11 +51,30 @@ function ShopDashboardContent() {
   const isToday = (s: any) => s.date && localDate(s.date) === todayStr;
   const sumType = (list: any[], types: string[]) => list.filter(s => isToday(s) && types.includes(s.type)).reduce((sum, s) => sum + Number(s.amount || 0), 0);
 
+  const r2 = (n: number) => Math.round(n * 100) / 100;
   const todaySales = sumType(shopStatements, ["Sale"]);
   const partyReceived = sumType(partyDocs, ["Payment"]);
   const todayExpense = sumType(shopStatements, ["Expense"]);
   const todayPaidOut = sumType(shopStatements, ["PaidOut", "Transfer", "Purchase"]);
   const netCash = todaySales + partyReceived - (todayExpense + todayPaidOut);
+
+  // ---------- আজকের লাভ-লস ----------
+  const invCost: any = {};
+  shopInventories.forEach(i => { invCost[i.id] = Number(i.costPrice || 0); });
+  const unitCost = (t: any) => {
+    if (t.costPrice !== undefined && t.costPrice !== null) return Number(t.costPrice);
+    if (t.productId && invCost[t.productId] !== undefined) return invCost[t.productId];
+    return null;
+  };
+  let unknownCost = 0;
+  const costOf = (list: any[]) => list.reduce((s, t) => {
+    const c = unitCost(t);
+    if (c === null) { unknownCost++; return s; }
+    return s + c * Number(t.qty || 0);
+  }, 0);
+  const todayPartyBill = sumType(partyDocs, ["Delivery"]);
+  const todayCogs = costOf(shopStatements.filter(s => isToday(s) && s.type === "Sale")) + costOf(partyDocs.filter(s => isToday(s) && s.type === "Delivery"));
+  const todayProfit = todaySales + todayPartyBill - todayCogs - todayExpense;
 
   let totalStockValue = 0;
   shopInventories.forEach(item => { totalStockValue += (Number(item.stock) || 0) * (Number(item.costPrice) || 0); });
@@ -65,6 +84,14 @@ function ShopDashboardContent() {
       <div className="flex items-center gap-3 mb-4">
         <button onClick={() => router.push("/")} className="bg-gray-100 p-2 rounded-lg"><ArrowLeft size={20} /></button>
         <h2 className="text-xl md:text-2xl font-bold text-brand-navy">{shopName} Dashboard</h2>
+      </div>
+
+      {/* ✅ আজকের লাভ-লস */}
+      <div className={`p-4 rounded-xl mb-3 border ${todayProfit >= 0 ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+        <div className="text-xs text-gray-500">আজকের {todayProfit >= 0 ? "লাভ" : "লস"}</div>
+        <h3 className={`text-2xl font-bold ${todayProfit >= 0 ? "text-green-700" : "text-red-700"}`}>৳{r2(Math.abs(todayProfit))}</h3>
+        <p className="text-[11px] text-gray-500 mt-1">বিক্রি ৳{r2(todaySales + todayPartyBill)} (লোকাল ৳{r2(todaySales)} + পার্টি বিল ৳{r2(todayPartyBill)}) − মালের কেনা দাম ৳{r2(todayCogs)} − খরচ ৳{r2(todayExpense)}</p>
+        {unknownCost > 0 && <p className="text-[11px] text-yellow-700 mt-1">{unknownCost} টি বিক্রির কেনা দাম জানা নেই, ধরা হয়নি।</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-3 mb-4">
