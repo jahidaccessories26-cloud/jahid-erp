@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { db } from "../lib/firebase";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { Store, Package, Wallet, ArrowRight } from "lucide-react";
+import { Store, Package, Wallet, ArrowRight, Factory } from "lucide-react";
 
 const CACHE_KEY = "homeCacheV1";
 const money = (n: any) => "৳" + (Math.round(Number(n || 0) * 100) / 100).toLocaleString("en-IN");
@@ -116,14 +116,24 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* মালিকের জন্য দৈনিক মোট হিসাব */}
-      <div onClick={() => router.push("/daily-report")} className="bg-brand-navy text-white p-4 rounded-2xl shadow-sm cursor-pointer hover:opacity-90 transition mb-5 flex items-center gap-3">
-        <div className="bg-white/15 p-3 rounded-xl"><Wallet size={24} /></div>
-        <div className="flex-1">
-          <h2 className="font-bold text-lg leading-tight">দৈনিক মোট হিসাব</h2>
-          <p className="text-xs text-white/70">লাভ-লস, মালের দাম, পার্টির পাওনা, আমার দেনা</p>
+      {/* মালিকের জন্য: দৈনিক মোট হিসাব ও মাল কেনা */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-5">
+        <div onClick={() => router.push("/daily-report")} className="bg-brand-navy text-white p-4 rounded-2xl shadow-sm cursor-pointer hover:opacity-90 transition flex items-center gap-3">
+          <div className="bg-white/15 p-3 rounded-xl"><Wallet size={24} /></div>
+          <div className="flex-1">
+            <h2 className="font-bold text-lg leading-tight">দৈনিক মোট হিসাব</h2>
+            <p className="text-xs text-white/70">লাভ-লস, মালের দাম, পার্টির পাওনা, আমার দেনা</p>
+          </div>
+          <ArrowRight size={20} className="text-white/70" />
         </div>
-        <ArrowRight size={20} className="text-white/70" />
+        <div onClick={() => router.push("/purchase")} className="bg-emerald-700 text-white p-4 rounded-2xl shadow-sm cursor-pointer hover:opacity-90 transition flex items-center gap-3">
+          <div className="bg-white/15 p-3 rounded-xl"><Factory size={24} /></div>
+          <div className="flex-1">
+            <h2 className="font-bold text-lg leading-tight">মাল কেনা</h2>
+            <p className="text-xs text-white/70">লোকাল থেকে কেনা, ফ্যাক্টরিতে অর্ডার, মাল পাওয়া</p>
+          </div>
+          <ArrowRight size={20} className="text-white/70" />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
