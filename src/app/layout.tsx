@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { auth, db } from "../lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import Link from "next/link";
-import { Menu, X, LayoutDashboard, Box, Package, Upload, Store, FileText, Users, ShoppingCart, Database, LogOut, Wallet } from "lucide-react";
+import { Menu, X, LayoutDashboard, Box, Package, Upload, Store, FileText, Users, ShoppingCart, Database, LogOut, Wallet, Factory } from "lucide-react";
 import "./globals.css"; // ✅ CSS ইমপোর্ট
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -51,6 +51,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     { name: "Shop Inventory", href: "/shop-inventory", icon: Package, needsShop: true },
     { name: "Shop Accounts", href: "/shop-statement", icon: FileText, needsShop: true },
     { name: "Daily Report", href: "/daily-report", icon: Wallet, adminOnly: true },
+    { name: "Purchase (মাল কেনা)", href: "/purchase", icon: Factory, adminOnly: true },
     { name: "Warehouse", href: "/warehouse", icon: Store },
     { name: "Products", href: "/products", icon: Database },
     { name: "Categories", href: "/categories", icon: FileText },
